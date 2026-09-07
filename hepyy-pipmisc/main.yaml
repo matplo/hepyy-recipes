@@ -2,7 +2,7 @@ name: hepyy-pipmisc
 version: "main"
 url: ""
 build_system: script
-verify_binary: python3
+verify_binary: 
 python_paths: ["."]
 
 build_script: "main.sh"
