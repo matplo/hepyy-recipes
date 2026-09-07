@@ -1,0 +1,10 @@
+name: hepyy-pipmisc
+version: "main"
+url: ""
+build_system: script
+verify_binary: python3
+python_paths: ["."]
+
+build_script: "main.sh"
+
+generate_modulefile: false
