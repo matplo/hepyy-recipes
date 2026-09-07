@@ -4,86 +4,75 @@ pip uninstall -y cppyy cppyy-backend cppyy-cling CPyCppyy 2>/dev/null || true
 
 if [[ "$(uname)" == "Darwin" ]]; then
   # ------------------------------------------------------------------ macOS
-  # cppyy-cling 6.32.8 (LLVM/cling 16) cannot be built from source on macOS
-  # with Xcode 16+ SDK (macOS 26.x) due to:
-  #   1. cmake 4.x (pip build dep) breaks CMakeLists.txt:189
-  #   2. Bundled zlib's fdopen macro conflicts with macOS 26.x _stdio.h
-  # Use the pre-built binary wheel instead.
-  echo "[cppyy] macOS: installing pre-built binary wheels..."
+  # cppyy-cling 6.32.8 (LLVM/cling 16) needs two fixes to build from source
+  # against the current (Xcode 16+/macOS 26.x) SDK — see cppyy-cling/6.32.8.sh
+  # for the full explanation of both:
+  #   1. cmake<4 pin + --no-build-isolation (CMakeLists.txt:189 breaks on
+  #      cmake 4.x's stricter if() parsing).
+  #   2. A one-line zutil.h patch — bundled zlib's legacy TARGET_OS_MAC clause
+  #      wrongly matches modern Darwin and clobbers fdopen() with a macro.
+  #
+  # On top of that, Cling's *own* embedded Clang-16-era frontend can't parse
+  # the current SDK's libc++ headers at all (a separate problem from what
+  # built Cling — Cling acts as its own compiler at runtime). This shows up
+  # even during the build, in rootcling's dictionary generation. Point the
+  # *entire* build at an older Command Line Tools SDK via SDKROOT so Cling
+  # only ever sees headers it understands — this bakes the fix into the
+  # built libCling permanently, with no SDKROOT override needed afterward
+  # (verified: a cppyy built this way successfully JIT-compiles and runs
+  # std::vector code with zero runtime environment changes).
+  pip install setuptools wheel "cmake<4.0.0" --quiet
+
+  OLD_SDK=$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX15*.sdk \
+                   /Library/Developer/CommandLineTools/SDKs/MacOSX14*.sdk \
+                   /Library/Developer/CommandLineTools/SDKs/MacOSX13*.sdk \
+            2>/dev/null | sort -V | tail -1)
+  if [ -z "$OLD_SDK" ]; then
+    echo "[cppyy] -------------------------------------------------------"
+    echo "[cppyy] FATAL: cling 16 (LLVM 16) cannot parse the current macOS"
+    echo "[cppyy] SDK's libc++ headers, and no older (<=15.x) SDK was found"
+    echo "[cppyy] under /Library/Developer/CommandLineTools/SDKs/."
+    echo "[cppyy]"
+    echo "[cppyy] Fix: install an older SDK alongside the current Command"
+    echo "[cppyy] Line Tools (they coexist fine), or wait for cppyy 3.6+"
+    echo "[cppyy] (LLVM 17+)."
+    echo "[cppyy] -------------------------------------------------------"
+    exit 1
+  fi
+  SDK_VER=$(basename "$OLD_SDK" .sdk | sed 's/MacOSX//')
+  echo "[cppyy] Building cppyy-cling against older SDK for Cling compatibility: $OLD_SDK"
+  export SDKROOT="$OLD_SDK" MACOSX_DEPLOYMENT_TARGET="$SDK_VER"
+  echo "[cppyy] Compiler: $(c++ --version | head -1)"
+  echo "[cppyy] cmake:    $(cmake --version | head -1)"
+
+  # pip has no hook to patch a version-spec ('pip install cppyy-cling==X')
+  # build in place, so download + extract + patch + build from that local
+  # directory instead.
+  SRC_DIR={{ builddir }}/cppyy-cling-src
+  rm -rf "$SRC_DIR" {{ builddir }}/cppyy-cling-sdist
+  mkdir -p "$SRC_DIR" {{ builddir }}/cppyy-cling-sdist
+  pip download cppyy-cling==6.32.8 --no-binary cppyy-cling --no-deps \
+      -d {{ builddir }}/cppyy-cling-sdist --no-cache-dir --quiet
+  tar xzf {{ builddir }}/cppyy-cling-sdist/cppyy_cling-6.32.8.tar.gz -C "$SRC_DIR"
+  sed -i.bak \
+      's/#if defined(MACOS) || defined(TARGET_OS_MAC)/#if defined(MACOS)/' \
+      "$SRC_DIR/cppyy_cling-6.32.8/src/builtins/zlib/zutil.h"
+
+  echo "[cppyy] Building cppyy-cling from source (~30-90 min)..."
+  mkdir -p {{ builddir }}/cppyy-wheels
+  STDCXX=17 MAKE_NPROCS={{ n_cores }} \
+  pip wheel "$SRC_DIR/cppyy_cling-6.32.8" \
+      --no-build-isolation \
+      --no-cache-dir \
+      --no-deps \
+      -w {{ builddir }}/cppyy-wheels
+
+  echo "[cppyy] Installing cppyy stack..."
   pip install "cppyy=={{ version }}" \
+      --find-links {{ builddir }}/cppyy-wheels \
       --no-cache-dir \
       --force-reinstall \
       --target {{ prefix }}
-
-  PCH_DEST="{{ prefix }}/cppyy_backend/etc"
-  LIBCLING="{{ prefix }}/cppyy_backend/lib/libCling.so"
-
-  # ------------------------------------------------------------------
-  # Fix MacPorts-linked libraries: the binary wheel was built on a system
-  # with MacPorts and hardcodes /opt/local/lib paths.  Repoint them to
-  # wherever libzstd actually lives on this machine (Homebrew or MacPorts).
-  # ------------------------------------------------------------------
-  if otool -L "$LIBCLING" 2>/dev/null | grep -q "/opt/local/lib/libzstd"; then
-    if [ ! -f /opt/local/lib/libzstd.1.dylib ]; then
-      LIBZSTD=$(ls /opt/homebrew/lib/libzstd.1.dylib /usr/local/lib/libzstd.1.dylib 2>/dev/null | head -1)
-      if [ -n "$LIBZSTD" ]; then
-        echo "[cppyy] Relinking libCling.so: /opt/local/lib/libzstd.1.dylib -> $LIBZSTD"
-        install_name_tool -change /opt/local/lib/libzstd.1.dylib "$LIBZSTD" "$LIBCLING"
-      else
-        echo "[cppyy] WARNING: libzstd not found in Homebrew or /usr/local/lib."
-        echo "[cppyy] Install it with: brew install zstd"
-      fi
-    fi
-  fi
-
-  # ------------------------------------------------------------------
-  # PCH generation: cling 16 cannot parse macOS 26.x SDK headers.
-  # Strategy: if an older macOS SDK (<=15.x) is available in the
-  # Command Line Tools, point cling at it for PCH generation only.
-  # The resulting PCH works for all subsequent cppyy usage.
-  # ------------------------------------------------------------------
-  if ! ls "$PCH_DEST"/allDict.cxx.pch.* 2>/dev/null | grep -q .; then
-    OLD_SDK=$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX15*.sdk \
-                     /Library/Developer/CommandLineTools/SDKs/MacOSX14*.sdk \
-                     /Library/Developer/CommandLineTools/SDKs/MacOSX13*.sdk \
-              2>/dev/null | sort -V | tail -1)
-
-    if [ -n "$OLD_SDK" ]; then
-      SDK_VER=$(basename "$OLD_SDK" .sdk | sed 's/MacOSX//')
-      echo "[cppyy] Building PCH using older SDK: $OLD_SDK"
-      echo "[cppyy] (cling 16 is incompatible with macOS 26.x SDK headers)"
-      SDKROOT="$OLD_SDK" MACOSX_DEPLOYMENT_TARGET="$SDK_VER" CLING_REBUILD_PCH=1 \
-        PYTHONPATH={{ prefix }} python3 -c "import cppyy; print('[cppyy] PCH built with SDK', '$SDK_VER')"
-      if ls "$PCH_DEST"/allDict.cxx.pch.* 2>/dev/null | grep -q .; then
-        echo "[cppyy] PCH generated: $(ls $PCH_DEST/allDict.cxx.pch.*)"
-      else
-        echo "[cppyy] WARNING: PCH generation did not produce a file."
-      fi
-    else
-      # No old SDK found — try if the system SDK somehow works (unlikely
-      # with cling 16 + macOS 26.x but worth attempting).
-      echo "[cppyy] No macOS 13/14/15 SDK found in CommandLineTools."
-      echo "[cppyy] Attempting PCH generation with system SDK..."
-      CLING_REBUILD_PCH=1 PYTHONPATH={{ prefix }} python3 -c "import cppyy" 2>&1 || true
-      if ! ls "$PCH_DEST"/allDict.cxx.pch.* 2>/dev/null | grep -q .; then
-        echo "[cppyy] -------------------------------------------------------"
-        echo "[cppyy] FATAL: Cannot generate PCH. cling 16 in cppyy 3.5.0"
-        echo "[cppyy] is incompatible with macOS 26.x SDK headers."
-        echo "[cppyy]"
-        echo "[cppyy] Fix options:"
-        echo "[cppyy]  1. Ensure /Library/Developer/CommandLineTools/SDKs/"
-        echo "[cppyy]     contains a MacOSX13.x, MacOSX14.x, or MacOSX15.x SDK."
-        echo "[cppyy]  2. Copy a pre-built PCH from an existing working env:"
-        echo "[cppyy]       cp <env>/lib/python*/site-packages/cppyy_backend/etc/allDict.cxx.pch.* \\"
-        echo "[cppyy]          $PCH_DEST/"
-        echo "[cppyy]  3. Wait for cppyy 3.6+ with LLVM 17+ support."
-        echo "[cppyy] -------------------------------------------------------"
-        exit 1
-      fi
-    fi
-  else
-    echo "[cppyy] PCH already present, skipping generation."
-  fi
 
 else
   # ------------------------------------------------------------------ Linux
