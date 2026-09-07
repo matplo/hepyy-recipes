@@ -10,7 +10,7 @@ build_system: script
 # would bypass the in-process registry and lose entries on write-back.
 depends_on:
   - fastjet
-  - fjcontrib
+  - fjcontrib/1.054
   - hepmc3
   - lhapdf
   - pythia8
