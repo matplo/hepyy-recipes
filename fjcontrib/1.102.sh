@@ -1,13 +1,5 @@
 set -e
-# The GitHub tag archive only contains the fjcontrib scaffolding —
-# the individual contribs (SoftDrop, Nsubjettiness, ...) are pulled
-# in separately from the hepforge SVN repo. Requires svn (subversion).
-if ! command -v svn >/dev/null 2>&1; then
-  echo "[fjcontrib] ERROR: svn not found — install subversion (brew install subversion)"
-  exit 1
-fi
-chmod +x scripts/update-contribs.sh scripts/internal/*.sh
-./scripts/update-contribs.sh
+# The hepforge release tarball bundles all contribs — no SVN needed.
 fjconfig={{ fastjet_prefix }}/bin/fastjet-config
 if [ ! -x "$fjconfig" ]; then
   echo "[fjcontrib] ERROR: fastjet-config not found at $fjconfig"
@@ -38,7 +30,6 @@ for cdir in */; do
   ofiles=$(ls *.o 2>/dev/null)
   if [ -n "$ofiles" ]; then
     if [ "Darwin" == $(uname) ]; then
-      # -undefined dynamic_lookup defers cross-contrib symbol resolution to load time
       {{ CXX }} -fPIC -dynamiclib -undefined dynamic_lookup \
         -o {{ prefix }}/lib/lib$c.dylib *.o $fjlibs \
         || failed_libs="$failed_libs $c"

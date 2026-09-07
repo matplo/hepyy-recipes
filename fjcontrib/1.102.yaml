@@ -1,6 +1,6 @@
 name: fjcontrib
 version: "1.102"
-url: "https://github.com/fjcontrib/fjcontrib/archive/refs/tags/{version}.tar.gz"
+url: "https://fastjet.hepforge.org/contrib/downloads/fjcontrib-{version}.tar.gz"
 build_system: script
 depends_on:
   - fastjet

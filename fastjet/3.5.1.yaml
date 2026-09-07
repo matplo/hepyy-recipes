@@ -1,20 +1,13 @@
 name: fastjet
 version: "3.5.1"
-build_system: script
+url: "http://fastjet.fr/repo/fastjet-{version}.tar.gz"
+build_system: autotools
 configure_args:
   - "--enable-shared"
   - "--disable-static"
   - "--enable-allplugins"
 make_jobs: 4
 verify_binary: fastjet-config
-
-# No tarball URL: GitLab's `-/archive` tarballs do not include the
-# content of git submodules (plugins/SISCone/siscone ends up empty),
-# which breaks the build with --enable-allplugins. Clone with
-# --recurse-submodules instead. The git checkout also has no
-# generated `configure` (unlike the old fastjet.fr release tarball),
-# so bootstrap it with autogen.sh first.
-build_script: "3.5.1.sh"
 cppyy:
   namespace: fastjet
   headers:
