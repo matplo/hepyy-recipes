@@ -1,0 +1,11 @@
+name: root
+version: "6.40.02"
+url: "https://root.cern/download/root_v{version}.source.tar.gz"
+build_system: script
+make_jobs: 10
+verify_binary: root-config
+
+python_paths:
+  - lib
+
+build_script: "6.40.02-nersc.sh"
