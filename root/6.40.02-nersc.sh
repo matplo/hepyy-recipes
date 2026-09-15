@@ -13,5 +13,6 @@ cmake {{ srcdir }} \
   -Dxml=ON \
   -Dunfold=ON \
   -Dbuiltin_vdt=ON \
-  -Dbuiltin_gif=ON
+  -Dbuiltin_gif=ON \
+  -Dbuiltin_gl2ps=ON
 cmake --build . --target install -- -j {{ n_cores }}
