@@ -1,6 +1,6 @@
 name: jewel
 version: "2.6.0"
-url: "https://jewel.hepforge.org/downloads/?f=jewel-{version}.tar.gz"
+url: "https://jewel.hepforge.org/downloads/?f=jewel-{version}.tgz"
 build_system: script
 verify_binary: jewel-2.6.0-vac
 depends_on:
