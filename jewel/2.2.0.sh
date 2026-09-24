@@ -1,9 +1,12 @@
 set -e
 lhapdf_prefix="{{ lhapdf_prefix }}"
 if [ -z "$lhapdf_prefix" ]; then
-  echo "[jewel] ERROR: lhapdf not found in heppyyier registry — install lhapdf first"
+  echo "[jewel] ERROR: lhapdf not found in hepyy registry — install lhapdf first"
   exit 1
 fi
+{% if platform == "darwin" %}
+sed -i '' 's/-lstdc++/-lc++/g' Makefile
+{% endif %}
 make LHAPDF_PATH="$lhapdf_prefix/lib"
 mkdir -p {{ prefix }}/bin {{ prefix }}/settings {{ prefix }}/info
 cp jewel-{{ version }}-* {{ prefix }}/bin/
