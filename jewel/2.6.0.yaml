@@ -1,0 +1,9 @@
+name: jewel
+version: "2.6.0"
+url: "https://jewel.hepforge.org/downloads/?f=jewel-{version}.tar.gz"
+build_system: script
+verify_binary: jewel-2.6.0-vac
+depends_on:
+  - lhapdf
+
+build_script: "2.6.0.sh"
