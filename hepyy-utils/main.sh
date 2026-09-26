@@ -13,26 +13,26 @@ mkdir -p {{ prefix }}/bin
 cat > {{ prefix }}/bin/jewel_prepare <<'EOF'
 #!/usr/bin/env bash
 export PYTHONPATH="{{ prefix }}:${PYTHONPATH:-}"
-exec python3 -m heppyyier_utils.jewel.cli prepare "$@"
+exec python3 -m hepyy_utils.jewel.cli prepare "$@"
 EOF
 
 cat > {{ prefix }}/bin/jewel_run <<'EOF'
 #!/usr/bin/env bash
 export PYTHONPATH="{{ prefix }}:${PYTHONPATH:-}"
-exec python3 -m heppyyier_utils.jewel.cli run "$@"
+exec python3 -m hepyy_utils.jewel.cli run "$@"
 EOF
 
 cat > {{ prefix }}/bin/jewel_convert <<'EOF'
 #!/usr/bin/env bash
 export PYTHONPATH="{{ prefix }}:${PYTHONPATH:-}"
-exec python3 -m heppyyier_utils.jewel.cli convert "$@"
+exec python3 -m hepyy_utils.jewel.cli convert "$@"
 EOF
 
 cat > {{ prefix }}/bin/jewel_pipeline <<'EOF'
 #!/usr/bin/env bash
 export PYTHONPATH="{{ prefix }}:${PYTHONPATH:-}"
-exec python3 -m heppyyier_utils.jewel.cli pipeline "$@"
+exec python3 -m hepyy_utils.jewel.cli pipeline "$@"
 EOF
 
 chmod +x {{ prefix }}/bin/jewel_prepare {{ prefix }}/bin/jewel_run {{ prefix }}/bin/jewel_convert {{ prefix }}/bin/jewel_pipeline
-PYTHONPATH={{ prefix }} python3 -c "import heppyyier_utils; import heppyyier_utils.jewel; print('[hepyy-utils]', heppyyier_utils.__version__)"
+PYTHONPATH={{ prefix }} python3 -c "import hepyy_utils; import hepyy_utils.jewel; print('[hepyy-utils]', hepyy_utils.__version__)"

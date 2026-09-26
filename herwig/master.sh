@@ -10,7 +10,7 @@ opts=""
 # Pin to recipe version; "master" skips this and uses the bootstrap default
 [ "{{ version }}" != "master" ] && opts="$opts --herwig-version={{ version }}"
 
-# Reuse heppyyier-installed packages where available
+# Reuse hepyy-installed packages where available
 [ -n "{{ lhapdf_prefix }}"  ] && opts="$opts --with-lhapdf={{ lhapdf_prefix }}"
 [ -n "{{ fastjet_prefix }}" ] && opts="$opts --with-fastjet={{ fastjet_prefix }}"
 [ -n "{{ hepmc3_prefix }}"  ] && opts="$opts --with-hepmc={{ hepmc3_prefix }}"

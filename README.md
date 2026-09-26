@@ -1,11 +1,11 @@
-# heppyyier-recipes
+# hepyy-recipes
 
-Recipe collection for [heppyyier](https://github.com/matplo/heppyyier) — a local HEP C++ package manager.
+Recipe collection for [hepyy](https://github.com/matplo/hepyy) — a local HEP C++ package manager.
 
-Recipes are automatically fetched when you run `heppyyier init`. To refresh:
+Recipes are automatically fetched when you run `hepyy init`. To refresh:
 
 ```bash
-heppyyier recipe update
+hepyy recipe update
 ```
 
 ## Available recipes
@@ -20,7 +20,7 @@ heppyyier recipe update
 | hepmc3 | 3.3.1 | HepMC3 event record I/O |
 | herwig | 7.3.0 | Herwig 7 event generator — bootstrap-based full install (requires lhapdf; set `HERWIG_BOOTSTRAP_LITE=1` to skip NLO tools) |
 | herwig | master | Herwig 7 — bootstrap default version (requires lhapdf) |
-| heppyyier-utils | main | Workflow utilities for heppyyier-installed generators and tools |
+| hepyy-utils | main | Workflow utilities for hepyy-installed generators and tools |
 | jewel | 2.4.0 | JEWEL jet quenching event generator (requires lhapdf) |
 | jewel | 2.2.0 | JEWEL jet quenching event generator (requires lhapdf) |
 | lhapdf | 6.5.5 | LHAPDF6 PDF sets with Python (SWIG) bindings |

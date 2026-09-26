@@ -4,7 +4,7 @@ url: ""
 build_system: script
 
 # Meta-recipe: installs the standard HEP software bundle.
-# Dependencies are resolved natively by the heppyyier builder — each package
+# Dependencies are resolved natively by the hepyy builder — each package
 # is built and registered individually before hepbundle itself is registered.
 # This is preferable to calling 'heyy install' from a shell script, which
 # would bypass the in-process registry and lose entries on write-back.
