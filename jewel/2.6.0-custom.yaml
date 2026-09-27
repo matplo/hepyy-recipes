@@ -3,10 +3,11 @@ version: "2.6.0-custom"
 # Stock JEWEL 2.6.0 source (the version string above is not part of the tarball name).
 url: "https://jewel.hepforge.org/downloads/?f=jewel-2.6.0.tgz"
 build_system: script
-# Installs the stock binaries (jewel-2.6.0-simple, jewel-2.6.0-vac) and, from the patched
-# source, jewel-2.6.0-custom-simple and jewel-2.6.0-custom-vac. See 2.6.0-custom.sh for the
-# patches and prefix/info/CUSTOM-PATCHES.txt after installation.
-verify_binary: jewel-2.6.0-custom-vac
+# Installs three builds: stock (jewel-2.6.0-{simple,vac}), jewel-2.6.0-custom-{simple,vac}
+# (hard-parton output) and jewel-2.6.0-custom-perf-{simple,vac} (all patches, faster, same
+# events). See 2.6.0-custom.sh for the patches and prefix/info/CUSTOM-PATCHES.txt after
+# installation.
+verify_binary: jewel-2.6.0-custom-perf-vac
 depends_on:
   - lhapdf
 
