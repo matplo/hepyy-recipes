@@ -21,7 +21,7 @@ hepyy recipe update
 | herwig | 7.3.0 | Herwig 7 event generator — bootstrap-based full install (requires lhapdf; set `HERWIG_BOOTSTRAP_LITE=1` to skip NLO tools) |
 | herwig | master | Herwig 7 — bootstrap default version (requires lhapdf) |
 | hepyy-utils | main | Workflow utilities for hepyy-installed generators and tools |
-| jewel | 2.6.0-custom | JEWEL 2.6.0: stock binaries plus `jewel-2.6.0-custom-{simple,vac}` with the hard partons in the HepMC output (patch set in `jewel/2.6.0-custom.sh`; requires lhapdf) |
+| jewel | 2.6.0-custom | JEWEL 2.6.0: stock binaries plus `jewel-2.6.0-custom-{simple,vac}` with the hard partons in the HepMC output, and `jewel-2.6.0-custom-perf-{simple,vac}` with all patches (same events, faster) (patch set in `jewel/2.6.0-custom.sh`; requires lhapdf) |
 | jewel | 2.6.0 | JEWEL jet quenching event generator (requires lhapdf) |
 | jewel | 2.4.0 | JEWEL jet quenching event generator (requires lhapdf) |
 | jewel | 2.2.0 | JEWEL jet quenching event generator (requires lhapdf) |
