@@ -36,8 +36,10 @@ Bump both when changing that ABI/build contract.
 
 Only headers, shared libraries, runtime data, manifests, and original license
 notices are packaged. No static archives, libtool archives, build tools, or
-cppyy/Cling libraries are shipped. Repeated SONAME aliases in a wheel refer to
-the same library identity; no FastJet libraries appear in the contrib wheel.
+cppyy/Cling libraries are shipped. Each shared library is stored once under its SONAME/install identity. The
+manifest tells the loader to use that canonical filename, avoiding duplicate
+images from pip copying symlink aliases. No FastJet libraries appear in the
+contrib wheel. The smoke test checks the loaded process images explicitly.
 
 macOS install names use `@loader_path`; the contrib dependency points to the
 sibling `hepyy_fastjet/lib`. Linux uses the corresponding `$ORIGIN` rpaths.

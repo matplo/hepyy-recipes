@@ -23,7 +23,7 @@ def verify(path):
         for header in manifest['headers']:
             assert f'{prefix}/include/{header}' in names, header
         for lib in manifest['libraries']:
-            assert any(f'{prefix}/lib/lib{lib}{ext}' in names for ext in ('.so', '.dylib')), lib
+            assert f'{prefix}/lib/{manifest["library_files"][lib]}' in names, lib
         if manifest['name'] == 'fjcontrib':
             assert 'Requires-Dist: hepyy-fastjet==3.5.1.0' in metadata
             assert not any(Path(n).name.startswith(('libfastjet.', 'libfastjettools.', 'libfastjetplugins.')) for n in names)

@@ -42,6 +42,18 @@ def capture(args):
     return subprocess.check_output(list(map(str, args)), text=True)
 
 
+def library_identity(path):
+    if sys.platform == "darwin":
+        return Path(capture(["otool", "-D", path]).splitlines()[-1].strip()).name
+    return capture(["patchelf", "--print-soname", path]).strip() or path.name
+
+
+def shared_libraries(prefix):
+    return [p for p in (prefix / "lib").iterdir()
+            if p.is_file() and not p.is_symlink()
+            and (p.name.endswith(".dylib") or ".so" in p.name)]
+
+
 def extract(name, cache, build):
     version, url, digest = SOURCES[name]
     archive = cache / url.rsplit("/", 1)[1]
@@ -66,8 +78,7 @@ def extract(name, cache, build):
 
 
 def relocate(prefix, fastjet=None):
-    libraries = [p for p in (prefix / "lib").iterdir()
-                 if p.is_file() and (p.name.endswith(".dylib") or ".so" in p.name)]
+    libraries = shared_libraries(prefix)
     for lib in libraries:
         # Modify each target once, before dereferencing links into the wheel.
         if lib.is_symlink():
@@ -152,6 +163,10 @@ def build(name, args):
                     source_url=url, source_sha256=digest,
                     abi=FASTJET_ABI if name == "fastjet" else f"{name}-{version}.0-cxx17-v1",
                     requires_native={"fastjet": FASTJET_ABI} if name == "fjcontrib" else {})
+    manifest["library_files"] = {}
+    for lib in libraries:
+        suffix = ".dylib" if sys.platform == "darwin" else ".so"
+        manifest["library_files"][lib] = library_identity(prefix / "lib" / f"lib{lib}{suffix}")
     (prefix / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     # Preserve original license notices alongside native payloads.
     licenses = prefix / "licenses"
@@ -182,9 +197,13 @@ def package(name, prefix, output):
         metadata += "Requires-Dist: hepyy-fastjet==3.5.1.0\n"
     with WheelFile(wheel, "w") as archive:
         archive.writestr(f"{module}/__init__.py", '"""Native data package; load through hepyy.load()."""\n')
+        # A wheel has no symlink semantics. Write exactly one file per SONAME,
+        # rather than materializing aliases as independently loadable copies.
+        for library in sorted(shared_libraries(prefix)):
+            archive.write(library, f"{module}/lib/{library_identity(library)}")
         for path in sorted(prefix.rglob("*")):
             rel = path.relative_to(prefix)
-            if not path.is_file() or rel.parts[0] not in ("include", "lib", "share", "licenses", "manifest.json"):
+            if not path.is_file() or rel.parts[0] not in ("include", "share", "licenses", "manifest.json"):
                 continue
             if path.suffix in (".a", ".la") or "pkgconfig" in rel.parts:
                 continue

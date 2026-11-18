@@ -3,14 +3,33 @@ import argparse
 import math
 from importlib import metadata
 from pathlib import Path
+import ctypes
+import re
+import sys
+
+
+def check_single_fastjet():
+    if sys.platform == 'darwin':
+        dyld = ctypes.CDLL(None)
+        dyld._dyld_image_count.restype = ctypes.c_uint32
+        dyld._dyld_get_image_name.argtypes = [ctypes.c_uint32]
+        dyld._dyld_get_image_name.restype = ctypes.c_char_p
+        paths = {dyld._dyld_get_image_name(i).decode() for i in range(dyld._dyld_image_count())}
+    else:
+        paths = {line.split()[-1] for line in Path('/proc/self/maps').read_text().splitlines()}
+    for name in ('fastjet', 'fastjettools', 'fastjetplugins'):
+        matches = {p for p in paths if re.match(r'lib' + name + r'\.', Path(p).name)}
+        assert len(matches) == 1, (name, matches)
+    print('PASS: exactly one loaded image per FastJet library', flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--fastjet-only', action='store_true')
     args = parser.parse_args()
-    import cppyy
     import hepyy
+    hepyy.load('fastjet')  # Also exercises hepyy's conda runtime preparation.
+    import cppyy
     from hepyy.native import wheel_record
 
     cppyy.cppdef('''
@@ -43,6 +62,7 @@ def main():
     assert math.isclose(sum(j.E() for j in jets), sum(p.E() for p in particles))
     assert len(jets[0].constituents()) == 2
     print('PASS: STL JIT, shared C++ types/std::string, FastJet clustering and conservation', flush=True)
+    check_single_fastjet()
     if args.fastjet_only:
         return
 
@@ -61,6 +81,7 @@ def main():
     root = Path(wheel_record('fjcontrib')['lib_dir'])
     assert not any(p.name.startswith(('libfastjet.', 'libfastjettools.')) for p in root.iterdir())
     print('PASS: SoftDrop, Nsubjettiness, shared FastJet identity; no bundled second FastJet', flush=True)
+    check_single_fastjet()
 
     hepyy.load('pythia8')
     import pythia8
