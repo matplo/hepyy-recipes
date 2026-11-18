@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build pip-owned C++ payload wheels. No Python bindings or cppyy are bundled.
 
-Requires Python >=3.10, PyYAML, wheel and a C++ toolchain; Linux also patchelf.
+Requires Python >=3.12, PyYAML, wheel and a C++ toolchain; Linux also patchelf.
 Run in a manylinux container for portable Linux artifacts. See README.md.
 """
 import argparse

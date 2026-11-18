@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: matplo/hepyy
-          ref: 68b3c42
+          ref: a94e7ed291a61964e696319dd98fc3c551eca6d3
           path: hepyy
       - uses: actions/setup-python@v5
         with:
@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: matplo/hepyy
-          ref: 68b3c42
+          ref: a94e7ed291a61964e696319dd98fc3c551eca6d3
           path: hepyy
       - uses: actions/setup-python@v5
         with:
