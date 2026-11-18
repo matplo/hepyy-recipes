@@ -16,6 +16,7 @@ import subprocess
 import sys
 import sysconfig
 import tarfile
+import time
 import urllib.request
 
 import yaml
@@ -58,8 +59,24 @@ def extract(name, cache, build):
     version, url, digest = SOURCES[name]
     archive = cache / url.rsplit("/", 1)[1]
     if not archive.exists():
-        with urllib.request.urlopen(url, timeout=120) as response:
-            archive.write_bytes(response.read())
+        # Upstream research servers occasionally time out from hosted runners.
+        # Retry transport failures, never checksum mismatches or partial caches.
+        request = urllib.request.Request(url, headers={"User-Agent": "hepyy-native-wheels/1"})
+        for attempt in range(5):
+            print(f"Downloading {url} (attempt {attempt + 1}/5)", flush=True)
+            try:
+                with urllib.request.urlopen(request, timeout=45) as response:
+                    data = response.read()
+                break
+            except OSError:
+                if attempt == 4:
+                    raise
+                time.sleep(attempt + 1)
+        if hashlib.sha256(data).hexdigest() != digest:
+            raise RuntimeError(f"Source checksum mismatch: {url}")
+        temporary = archive.with_suffix(archive.suffix + ".part")
+        temporary.write_bytes(data)
+        temporary.replace(archive)
     if hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
         raise RuntimeError(f"Source checksum mismatch: {archive}")
     target = build / "source"
