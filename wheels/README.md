@@ -53,7 +53,7 @@ The Actions workflow builds manylinux_2_28 x86_64 and macOS arm64/x86_64 artifac
 It tests Linux pip cppyy with Python 3.10/3.12, and activated macOS conda-forge
 cppyy with Python 3.12. The paired hepyy revision is pinned in the workflow;
 update it deliberately after merging the loader changes. Artifacts are uploaded
-only after successful checks; **there is no PyPI publish job**.
+only after successful checks. Publication uses a separate manual workflow.
 
 `smoke.py` verifies STL JIT, C++ std::string interoperability, FastJet clustering
 and momentum conservation, SoftDrop, Nsubjettiness, and three seeded Pythia events
@@ -67,3 +67,10 @@ The native wheels are not published. Install the paired hepyy checkout with
 conda-forge cppyy environment, or add the `cppyy` extra on tested Linux pip hosts.
 Source tarball redistribution, license/source delivery obligations, additional
 architectures, and minimum OS validation need release review before publication.
+
+## Release preparation
+
+See [the release checklist](RELEASE.md) for publisher configuration, exact-commit
+artifact promotion, TestPyPI rehearsal, approval and public release order.
+Native wheels now embed their corresponding upstream archives and rebuild
+materials under `sources/`; license files also appear in distribution metadata.

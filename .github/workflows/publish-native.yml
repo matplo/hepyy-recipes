@@ -1,0 +1,82 @@
+name: Publish tested native wheels
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Native wheels CI run at this exact main commit
+        required: true
+        type: string
+      destination:
+        description: Package index (requires environment approval)
+        required: true
+        type: choice
+        options: [testpypi, pypi]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify source CI identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          run_id = os.environ['RUN_ID']
+          assert run_id.isdigit(), 'run_id must be numeric'
+          data = json.loads(subprocess.check_output(['gh', 'api', f"repos/{os.environ['REPOSITORY']}/actions/runs/{run_id}"]))
+          assert data['conclusion'] == 'success' and data['status'] == 'completed'
+          assert data['head_sha'] == os.environ['RELEASE_SHA'], 'CI must test this exact commit'
+          assert data['head_branch'] == 'main' and data['event'] == 'push'
+          assert data['path'] == '.github/workflows/native-wheels.yml'
+          PY
+          gh run download "$RUN_ID" --repo "$REPOSITORY" --pattern 'native-*' --dir artifacts
+      - name: Validate release artifacts
+        run: |
+          mkdir dist
+          find artifacts -type f -name '*.whl' -exec cp -n {} dist/ \;
+          python -m pip install twine
+          python wheels/release_check.py dist
+          python -m twine check --strict dist/*
+          sha256sum dist/* > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: approved-native-release
+          path: |
+            dist/*.whl
+            SHA256SUMS
+  publish:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.destination }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: approved-native-release
+          path: release
+      - name: Verify artifact checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+      - name: Publish to TestPyPI
+        if: inputs.destination == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: release/dist/
+      - name: Publish to PyPI
+        if: inputs.destination == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: release/dist/

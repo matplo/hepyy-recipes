@@ -24,6 +24,15 @@ def verify(path):
             assert f'{prefix}/include/{header}' in names, header
         for lib in manifest['libraries']:
             assert f'{prefix}/lib/{manifest["library_files"][lib]}' in names, lib
+        source_files = [n for n in names if n.startswith(prefix + '/sources/') and n.endswith(('.tar.gz', '.tgz'))]
+        assert len(source_files) == 1, source_files
+        import hashlib
+        assert hashlib.sha256(archive.read(source_files[0])).hexdigest() == manifest['source_sha256']
+        assert f'{prefix}/sources/build.py' in names
+        assert f'{prefix}/sources/REBUILD.md' in names
+        assert 'Description-Content-Type: text/markdown' in metadata
+        assert 'License-File: upstream/' in metadata
+        assert any(n.startswith(info.rsplit('/', 1)[0] + '/licenses/upstream/') for n in names)
         if manifest['name'] == 'fjcontrib':
             assert 'Requires-Dist: hepyy-fastjet==3.5.1.0' in metadata
             assert not any(Path(n).name.startswith(('libfastjet.', 'libfastjettools.', 'libfastjetplugins.')) for n in names)

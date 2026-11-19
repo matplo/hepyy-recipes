@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: yum install -y rsync
-      - run: python -m pip install wheel pyyaml auditwheel patchelf
+      - run: python -m pip install wheel pyyaml auditwheel patchelf twine
       - run: python -m unittest discover -s wheels/tests -v
       - name: Build native payloads
         run: |
@@ -30,6 +30,7 @@ jobs:
           LD_LIBRARY_PATH="$PWD/build-native/fastjet/prefix/lib" auditwheel repair --plat manylinux_2_28_x86_64 --exclude libfastjet.so.0 --exclude libfastjettools.so.0 --exclude libfastjetplugins.so.0 -w wheelhouse raw-wheels/hepyy_fjcontrib-*.whl
           auditwheel repair --plat manylinux_2_28_x86_64 -w wheelhouse raw-wheels/hepyy_pythia8-*.whl
           python wheels/verify.py wheelhouse/*.whl
+          python -m twine check --strict wheelhouse/*.whl
       - uses: actions/upload-artifact@v4
         with:
           name: native-manylinux-x86_64
@@ -45,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: matplo/hepyy
-          ref: 354b66acc674859f851527e1a52e831ee0f151b1
+          ref: d89a78aa701524b7c0af3b4cfec9c7d7dc29f3b6
           path: hepyy
       - uses: actions/setup-python@v5
         with:
@@ -71,12 +72,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: matplo/hepyy
-          ref: 354b66acc674859f851527e1a52e831ee0f151b1
+          ref: d89a78aa701524b7c0af3b4cfec9c7d7dc29f3b6
           path: hepyy
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install wheel pyyaml delocate
+      - run: python -m pip install wheel pyyaml delocate twine
       - run: python -m unittest discover -s wheels/tests -v
       - name: Build using the system toolchain
         run: |
@@ -84,6 +85,7 @@ jobs:
           python wheels/build.py fjcontrib --work build-native --cache cache --output wheelhouse --fastjet-prefix build-native/fastjet/prefix
           python wheels/build.py pythia8 --work build-native --cache cache --output wheelhouse
           python wheels/verify.py wheelhouse/*.whl
+          python -m twine check --strict wheelhouse/*.whl
           delocate-listdeps wheelhouse/hepyy_fastjet-*.whl
           delocate-listdeps wheelhouse/hepyy_pythia8-*.whl
           mv build-native build-native-hidden

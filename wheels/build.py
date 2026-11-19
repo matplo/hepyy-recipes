@@ -195,6 +195,21 @@ def build(name, args):
             shutil.copy2(path, target)
     if not any(licenses.rglob("*")):
         raise RuntimeError("No upstream license found")
+    # Deliver the exact upstream sources and packaging recipe with the binary.
+    sources = prefix / "sources"
+    sources.mkdir()
+    shutil.copy2(args.cache / url.rsplit("/", 1)[1], sources)
+    recipe_dir = sources / name
+    recipe_dir.mkdir()
+    shutil.copy2(ROOT / name / f"{version}.yaml", recipe_dir)
+    shutil.copy2(Path(__file__), sources / "build.py")
+    shutil.copy2(Path(__file__).with_name("REBUILD.md"), sources)
+    shutil.copy2(Path(__file__).with_name("LICENSE"), sources / "PACKAGING-LICENSE")
+    (sources / "provenance.json").write_text(json.dumps({
+        "package": name, "source_url": url, "source_sha256": digest,
+        "packaging_revision": os.environ.get("GITHUB_SHA", "local"),
+        "compiler": capture([cxx, "--version"]),
+    }, indent=2) + "\n")
     return package(name, prefix, args.output)
 
 
@@ -208,24 +223,50 @@ def package(name, prefix, output):
     tag = f"py3-none-{plat}"
     info = f"{module}-{version}.dist-info"
     wheel = output / f"{module}-{version}-{tag}.whl"
-    metadata = (f"Metadata-Version: 2.1\nName: hepyy-{name}\nVersion: {version}\n"
+    metadata = (f"Metadata-Version: 2.4\nName: hepyy-{name}\nVersion: {version}\n"
                 "Requires-Python: >=3.9\nSummary: Native C++ payload for hepyy/cppyy\n")
+    metadata += (
+        "Author: hepyy contributors; upstream authors credited in bundled sources\n"
+        "Project-URL: Repository, https://github.com/matplo/hepyy-recipes\n"
+        "Project-URL: Documentation, https://github.com/matplo/hepyy-recipes/blob/main/wheels/README.md\n"
+        "Project-URL: Issues, https://github.com/matplo/hepyy-recipes/issues\n"
+        "Description-Content-Type: text/markdown\n"
+        "License: See bundled upstream COPYING/LICENSE notices; individual fjcontrib components retain their own terms.\n"
+    )
+    notices = [p for p in sorted((prefix / "licenses").rglob("*")) if p.is_file()]
+    for notice in notices:
+        metadata += f"License-File: upstream/{notice.relative_to(prefix / 'licenses').as_posix()}\n"
     if name == "fjcontrib":
         metadata += "Requires-Dist: hepyy-fastjet==3.5.1.0\n"
     with WheelFile(wheel, "w") as archive:
         archive.writestr(f"{module}/__init__.py", '"""Native data package; load through hepyy.load()."""\n')
+        for notice in notices:
+            archive.write(notice, f"{info}/licenses/upstream/{notice.relative_to(prefix / 'licenses').as_posix()}")
         # A wheel has no symlink semantics. Write exactly one file per SONAME,
         # rather than materializing aliases as independently loadable copies.
         for library in sorted(shared_libraries(prefix)):
             archive.write(library, f"{module}/lib/{library_identity(library)}")
         for path in sorted(prefix.rglob("*")):
             rel = path.relative_to(prefix)
-            if not path.is_file() or rel.parts[0] not in ("include", "share", "licenses", "manifest.json"):
+            if not path.is_file() or rel.parts[0] not in ("include", "share", "licenses", "sources", "manifest.json"):
                 continue
             if path.suffix in (".a", ".la") or "pkgconfig" in rel.parts:
                 continue
             archive.write(path, f"{module}/{rel.as_posix()}")
-        archive.writestr(f"{info}/METADATA", metadata + "\n")
+        description = (
+            f"# hepyy-{name} {version}\n\n"
+            f"Native {name} libraries and headers for the shared hepyy/cppyy loader.\n\n"
+            "Install hepyy with its matching native extras, then use `hepyy.load()`. "
+            "These wheels contain no cppyy runtime or independent Python bindings. "
+            "On macOS use an activated conda-forge cppyy environment.\n\n"
+            "Tested: Linux x86_64 with pip cppyy (Python 3.10/3.12), and macOS "
+            "arm64/x86_64 with conda-forge cppyy (Python 3.12). "
+            "Windows and Linux arm64 are not covered.\n\n"
+            "The `sources` directory contains the exact upstream source archive, "
+            "packaging script, recipe and rebuild instructions. Original license "
+            "notices are retained in the payload and distribution metadata.\n"
+        )
+        archive.writestr(f"{info}/METADATA", metadata + "\n" + description)
         archive.writestr(f"{info}/WHEEL", f"Wheel-Version: 1.0\nGenerator: hepyy-native\nRoot-Is-Purelib: false\nTag: {tag}\n")
     print(wheel, flush=True)
     return wheel
