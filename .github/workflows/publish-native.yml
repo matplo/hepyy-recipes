@@ -55,11 +55,17 @@ jobs:
           path: |
             dist/*.whl
             SHA256SUMS
-  publish:
+  publish-fastjet:
     needs: prepare
     runs-on: ubuntu-24.04
-    environment: ${{ inputs.destination }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {package: 'hepyy_fastjet', suffix: ''}
+    environment: ${{ format('{0}{1}', inputs.destination, matrix.suffix) }}
     permissions:
+      actions: read
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
@@ -69,14 +75,70 @@ jobs:
       - name: Verify artifact checksums
         working-directory: release
         run: sha256sum --check SHA256SUMS
+      - name: Select this distribution
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          mkdir package-dist
+          python - <<'PYCODE'
+          import os, pathlib, shutil
+          wheels = list(pathlib.Path('release/dist').glob(os.environ['PACKAGE'] + '-*.whl'))
+          assert len(wheels) == 3, wheels
+          for wheel in wheels:
+              shutil.copy2(wheel, 'package-dist')
+          PYCODE
       - name: Publish to TestPyPI
         if: inputs.destination == 'testpypi'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          packages-dir: release/dist/
+          packages-dir: package-dist/
       - name: Publish to PyPI
         if: inputs.destination == 'pypi'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: release/dist/
+          packages-dir: package-dist/
+  publish-dependents:
+    needs: publish-fastjet
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {package: 'hepyy_fjcontrib', suffix: '-fjcontrib'}
+          - {package: 'hepyy_pythia8', suffix: '-pythia8'}
+    environment: ${{ format('{0}{1}', inputs.destination, matrix.suffix) }}
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: approved-native-release
+          path: release
+      - name: Verify artifact checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+      - name: Select this distribution
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          mkdir package-dist
+          python - <<'PYCODE'
+          import os, pathlib, shutil
+          wheels = list(pathlib.Path('release/dist').glob(os.environ['PACKAGE'] + '-*.whl'))
+          assert len(wheels) == 3, wheels
+          for wheel in wheels:
+              shutil.copy2(wheel, 'package-dist')
+          PYCODE
+      - name: Publish to TestPyPI
+        if: inputs.destination == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: package-dist/
+      - name: Publish to PyPI
+        if: inputs.destination == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: package-dist/

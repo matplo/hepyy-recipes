@@ -6,7 +6,8 @@ hepyy-pythia8 8.317.0, then hepyy 0.2.31. The pre-change hepyy tag
 
 ## Account setup (owner action)
 
-In matplo/hepyy-recipes create GitHub environments `testpypi` and `pypi`.
+In matplo/hepyy-recipes use GitHub environments `testpypi`, `pypi`,
+`testpypi-fjcontrib`, `pypi-fjcontrib`, `testpypi-pythia8`, and `pypi-pythia8`.
 Configure required reviewer approval and allow deployments from `main` only.
 Do this before dispatching the publishing workflow; an automatically created
 unprotected environment does not supply a human approval gate.
@@ -19,7 +20,15 @@ on both TestPyPI and PyPI using these exact values:
 | Owner | matplo |
 | Repository | hepyy-recipes |
 | Workflow filename | publish-native.yml |
-| Environment | testpypi on TestPyPI; pypi on PyPI |
+| Environment (FastJet) | testpypi on TestPyPI; pypi on PyPI |
+| Environment (fjcontrib) | testpypi-fjcontrib; pypi-fjcontrib |
+| Environment (Pythia8) | testpypi-pythia8; pypi-pythia8 |
+
+All six pending publishers were registered and verified on November 18, 2026.
+All six GitHub environments require review by matplo and main-only deployments.
+Distinct environments are necessary because PyPI rejects identical pending
+publisher configurations across different project names. The workflow publishes
+FastJet first, then the two dependent distribution jobs with their own approvals.
 
 Pending publishers do not reserve names. Confirm ownership/name availability
 again before the first upload. No API token needs to be shared with an agent.
