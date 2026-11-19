@@ -1,0 +1,197 @@
+name: Publish tested native wheels
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Native wheels CI run at this exact main commit
+        required: true
+        type: string
+      destination:
+        description: Package index (requires environment approval)
+        required: true
+        type: choice
+        options: [testpypi, pypi]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify source CI identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          run_id = os.environ['RUN_ID']
+          assert run_id.isdigit(), 'run_id must be numeric'
+          data = json.loads(subprocess.check_output(['gh', 'api', f"repos/{os.environ['REPOSITORY']}/actions/runs/{run_id}"]))
+          assert data['conclusion'] == 'success' and data['status'] == 'completed'
+          assert data['head_sha'] == os.environ['RELEASE_SHA'], 'CI must test this exact commit'
+          assert data['head_branch'] == 'main' and data['event'] == 'push'
+          assert data['path'] == '.github/workflows/native-wheels.yml'
+          PY
+          gh run download "$RUN_ID" --repo "$REPOSITORY" --pattern 'native-*' --dir artifacts
+      - name: Validate release artifacts
+        run: |
+          mkdir dist
+          find artifacts -type f -name '*.whl' -exec cp -n {} dist/ \;
+          python -m pip install twine
+          python wheels/release_check.py dist
+          python -m twine check --strict dist/*
+          sha256sum dist/* > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: approved-native-release
+          path: |
+            dist/*.whl
+            SHA256SUMS
+  publish-fastjet:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {package: 'hepyy_fastjet', suffix: ''}
+    environment: ${{ format('{0}{1}', inputs.destination, matrix.suffix) }}
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: approved-native-release
+          path: release
+      - name: Verify artifact checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+      - name: Select this distribution
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          mkdir package-dist
+          python - <<'PYCODE'
+          import os, pathlib, shutil
+          wheels = list(pathlib.Path('release/dist').glob(os.environ['PACKAGE'] + '-*.whl'))
+          assert len(wheels) == 3, wheels
+          for wheel in wheels:
+              shutil.copy2(wheel, 'package-dist')
+          PYCODE
+      - name: Publish to TestPyPI
+        if: inputs.destination == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: package-dist/
+      - name: Publish to PyPI
+        if: inputs.destination == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: package-dist/
+  publish-dependents:
+    needs: publish-fastjet
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {package: 'hepyy_fjcontrib', suffix: '-fjcontrib'}
+          - {package: 'hepyy_pythia8', suffix: '-pythia8'}
+    environment: ${{ format('{0}{1}', inputs.destination, matrix.suffix) }}
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: approved-native-release
+          path: release
+      - name: Verify artifact checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+      - name: Select this distribution
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          mkdir package-dist
+          python - <<'PYCODE'
+          import os, pathlib, shutil
+          wheels = list(pathlib.Path('release/dist').glob(os.environ['PACKAGE'] + '-*.whl'))
+          assert len(wheels) == 3, wheels
+          for wheel in wheels:
+              shutil.copy2(wheel, 'package-dist')
+          PYCODE
+      - name: Publish to TestPyPI
+        if: inputs.destination == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: package-dist/
+      - name: Publish to PyPI
+        if: inputs.destination == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: package-dist/
+  rehearse-testpypi:
+    if: inputs.destination == 'testpypi'
+    needs: publish-dependents
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, python: '3.10'}
+          - {os: ubuntu-24.04, python: '3.12'}
+          - {os: macos-15, python: '3.12'}
+          - {os: macos-15-intel, python: '3.12'}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/hepyy
+          ref: 01d1987a8fb6908f2942a2bb4b6f9feb28a62d33
+          path: hepyy
+      - uses: actions/setup-python@v5
+        if: runner.os == 'Linux'
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: conda-incubator/setup-miniconda@v3
+        if: runner.os == 'macOS'
+        with:
+          miniforge-version: latest
+          activate-environment: native-rehearsal
+          python-version: ${{ matrix.python }}
+          channels: conda-forge
+          conda-remove-defaults: true
+      - name: Prepare runtime from normal package sources
+        shell: bash -el {0}
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            conda install -y cppyy pip
+            python -m pip install ./hepyy
+          else
+            python -m pip install './hepyy[cppyy]'
+          fi
+          python -m pip freeze | grep -iE 'cppyy|cling' > cppyy-before.txt
+      - name: Download exact native wheels from TestPyPI only
+        shell: bash -el {0}
+        run: |
+          python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --dest staging hepyy-fastjet==3.5.1.0 hepyy-fjcontrib==1.102.0 hepyy-pythia8==8.317.0
+          python -m pip install --no-index --no-deps staging/*.whl
+          python -m pip freeze | grep -iE 'cppyy|cling' > cppyy-after.txt
+          diff -u cppyy-before.txt cppyy-after.txt
+      - name: Verify installed TestPyPI wheels
+        shell: bash -el {0}
+        run: HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-rehearsal-registry" python wheels/smoke.py

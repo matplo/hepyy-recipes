@@ -39,3 +39,9 @@ hepyy recipe update
 
 Each recipe is a YAML file at `<name>/<version>.yaml`. See existing recipes for the format.
 To contribute, open a pull request against this repository.
+
+## Native wheel development
+
+[The native wheel builder](wheels/README.md) packages FastJet, fjcontrib and
+Pythia8 for the shared cppyy loader in hepyy. Its CI uploads test artifacts only;
+it does not publish packages or change the existing source-install recipes.

@@ -1,0 +1,111 @@
+name: Native wheels
+on:
+  push:
+    branches: [main, 'feature/native-wheels']
+    paths: ['wheels/**', '.github/workflows/native-wheels.yml', 'fastjet/**', 'fjcontrib/**', 'pythia8/**']
+  pull_request:
+    paths: ['wheels/**', '.github/workflows/native-wheels.yml', 'fastjet/**', 'fjcontrib/**', 'pythia8/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-build:
+    runs-on: ubuntu-24.04
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    env:
+      PATH: /opt/python/cp312-cp312/bin:/opt/rh/gcc-toolset-14/root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    steps:
+      - uses: actions/checkout@v4
+      - run: yum install -y rsync
+      - run: python -m pip install wheel pyyaml auditwheel patchelf twine
+      - run: python -m unittest discover -s wheels/tests -v
+      - name: Build native payloads
+        run: |
+          python wheels/build.py fastjet --work build-native --cache cache --output raw-wheels
+          python wheels/build.py fjcontrib --work build-native --cache cache --output raw-wheels --fastjet-prefix build-native/fastjet/prefix
+          python wheels/build.py pythia8 --work build-native --cache cache --output raw-wheels
+      - name: Audit and repair without duplicating FastJet
+        run: |
+          auditwheel repair --plat manylinux_2_28_x86_64 -w wheelhouse raw-wheels/hepyy_fastjet-*.whl
+          LD_LIBRARY_PATH="$PWD/build-native/fastjet/prefix/lib" auditwheel repair --plat manylinux_2_28_x86_64 --exclude libfastjet.so.0 --exclude libfastjettools.so.0 --exclude libfastjetplugins.so.0 -w wheelhouse raw-wheels/hepyy_fjcontrib-*.whl
+          auditwheel repair --plat manylinux_2_28_x86_64 -w wheelhouse raw-wheels/hepyy_pythia8-*.whl
+          python wheels/verify.py wheelhouse/*.whl
+          python -m twine check --strict wheelhouse/*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-manylinux-x86_64
+          path: wheelhouse/*.whl
+  linux-test:
+    needs: linux-build
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/hepyy
+          ref: d89a78aa701524b7c0af3b4cfec9c7d7dc29f3b6
+          path: hepyy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-manylinux-x86_64
+          path: wheelhouse
+      - run: python -m pip install --find-links wheelhouse './hepyy[cppyy,fjcontrib,pythia8]'
+      - run: python wheels/smoke.py
+        env:
+          HEPYY_PACKAGES_DIR: ${{ runner.temp }}/empty-registry
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/hepyy
+          ref: d89a78aa701524b7c0af3b4cfec9c7d7dc29f3b6
+          path: hepyy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install wheel pyyaml delocate twine
+      - run: python -m unittest discover -s wheels/tests -v
+      - name: Build using the system toolchain
+        run: |
+          python wheels/build.py fastjet --work build-native --cache cache --output wheelhouse
+          python wheels/build.py fjcontrib --work build-native --cache cache --output wheelhouse --fastjet-prefix build-native/fastjet/prefix
+          python wheels/build.py pythia8 --work build-native --cache cache --output wheelhouse
+          python wheels/verify.py wheelhouse/*.whl
+          python -m twine check --strict wheelhouse/*.whl
+          delocate-listdeps wheelhouse/hepyy_fastjet-*.whl
+          delocate-listdeps wheelhouse/hepyy_pythia8-*.whl
+          mv build-native build-native-hidden
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: native-test
+          python-version: '3.12'
+          channels: conda-forge
+          conda-remove-defaults: true
+      - name: Test activated conda-forge cppyy without replacing it
+        shell: bash -el {0}
+        run: |
+          conda install -y cppyy pip
+          python -m pip freeze | grep -iE 'cppyy|cling' > cppyy-before.txt
+          python -m pip install --find-links wheelhouse './hepyy[fjcontrib,pythia8]'
+          python -m pip freeze | grep -iE 'cppyy|cling' > cppyy-after.txt
+          diff -u cppyy-before.txt cppyy-after.txt
+          HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-registry" python wheels/smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.os }}
+          path: wheelhouse/*.whl
