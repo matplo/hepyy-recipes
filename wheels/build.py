@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build pip-owned C++ payload wheels. No Python bindings or cppyy are bundled.
+"""Build pip-owned C++ payloads and upstream LHAPDF bindings; cppyy is external.
 
 Requires Python >=3.12, PyYAML, wheel and a C++ toolchain; Linux also patchelf.
 Run in a manylinux container for portable Linux artifacts. See README.md.
@@ -23,15 +23,18 @@ import yaml
 from wheel.wheelfile import WheelFile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = {
-    "fastjet": ("3.5.1", "https://fastjet.fr/repo/fastjet-3.5.1.tar.gz",
-                "9a4154163e72041dee3fdde9cb24e814625e178091a8734a6ad5375e5371b423"),
-    "fjcontrib": ("1.102", "https://fastjet.hepforge.org/contrib/downloads/fjcontrib-1.102.tar.gz",
-                  "971bdd6260a0755acadcdd04c2e22aece81625038f8aab869b8c472ed2091b7e"),
-    "pythia8": ("8.317", "https://pythia.org/releases/pythia83/pythia8317.tgz",
-                "1ae551d14dac495ddfe6b344792035ebe410fe6c6004d44a335e0ece0e745adf"),
-}
-FASTJET_ABI = "fastjet-3.5.1.0-cxx17-v1"
+LOCK = json.loads((ROOT / "wheels/packages.lock.json").read_text())["packages"]
+SOURCES = {name: (r["version"], r["url"], r["sha256"]) for name,r in LOCK.items()}
+FASTJET_ABI = LOCK["fastjet"]["abi"]
+
+
+def archive_name(url):
+    from urllib.parse import urlsplit, parse_qs
+    parts = urlsplit(url)
+    name = parse_qs(parts.query).get("f", [Path(parts.path).name])[0]
+    if Path(name).name != name:
+        raise RuntimeError("Unsafe archive name")
+    return name
 
 
 def run(args, cwd=None, env=None):
@@ -57,7 +60,7 @@ def shared_libraries(prefix):
 
 def extract(name, cache, build):
     version, url, digest = SOURCES[name]
-    archive = cache / url.rsplit("/", 1)[1]
+    archive = cache / archive_name(url)
     if not archive.exists():
         # Upstream research servers occasionally time out from hosted runners.
         # Retry transport failures, never checksum mismatches or partial caches.
@@ -94,39 +97,47 @@ def extract(name, cache, build):
     return children[0]
 
 
-def relocate(prefix, fastjet=None):
+def relocate(prefix, dependencies=None):
+    dependencies = dependencies or {}
     libraries = shared_libraries(prefix)
     for lib in libraries:
         # Modify each target once, before dereferencing links into the wheel.
         if lib.is_symlink():
             continue
         if sys.platform == "darwin":
-            run(["install_name_tool", "-id", f"@rpath/{lib.name}", lib])
+            identity = lib.name if lib.name.endswith('.so') else f"@rpath/{lib.name}"
+            run(["install_name_tool", "-id", identity, lib])
             for line in capture(["otool", "-L", lib]).splitlines()[1:]:
                 old = line.strip().split(" (", 1)[0]
                 base = Path(old).name
-                if old == f"@rpath/{lib.name}":
+                if old == identity:
                     continue  # otool -L includes this library's own install ID
-                if old.startswith(str(prefix)):
+                if old.startswith(str(prefix)) or (old.startswith('@rpath/') and (prefix / 'lib' / base).exists()):
                     new = f"@loader_path/{base}"
-                elif fastjet and (old.startswith(str(fastjet)) or base.startswith(("libfastjet.", "libfastjettools.", "libfastjetplugins."))):
-                    new = f"@loader_path/../../hepyy_fastjet/lib/{base}"
-                elif old.startswith(("/usr/lib/", "/System/Library/", "@loader_path/")) or old == f"@rpath/{lib.name}":
-                    continue
                 else:
-                    raise RuntimeError(f"Unapproved external library {old} in {lib}")
+                    owner = next((name for name,path in dependencies.items()
+                                  if old.startswith(str(path)) or (path / 'lib' / base).exists()), None)
+                    if owner:
+                        new = f"@loader_path/../../hepyy_{owner}/lib/{base}"
+                    elif old.startswith(("/usr/lib/", "/System/Library/", "@loader_path/")):
+                        continue
+                    else:
+                        raise RuntimeError(f"Unapproved external library {old} in {lib}")
                 run(["install_name_tool", "-change", old, new, lib])
             # install_name_tool invalidates signatures on Apple silicon.
             run(["codesign", "--force", "--sign", "-", lib])
         else:
             paths = "$ORIGIN"
-            if fastjet:
-                paths += ":$ORIGIN/../../hepyy_fastjet/lib"
+            for name in dependencies:
+                paths += f":$ORIGIN/../../hepyy_{name}/lib"
             run(["patchelf", "--set-rpath", paths, lib])
 
 
 def build(name, args):
     version, url, digest = SOURCES[name]
+    profile = Path(__file__).read_bytes() + Path(__file__).with_name('lhapdf_python.py').read_bytes()
+    if LOCK[name].get('builder_sha256') != hashlib.sha256(profile).hexdigest():
+        raise RuntimeError('Build profile changed: run upgrade.py sync --write first')
     dest = args.work / name
     if dest.exists():
         raise RuntimeError(f"Build directory already exists; choose a fresh --work: {dest}")
@@ -135,11 +146,23 @@ def build(name, args):
     prefix = dest / "prefix"
     prefix.mkdir()
     env = os.environ.copy()
+    env['PATH'] = str(Path(sys.executable).parent) + os.pathsep + env.get('PATH','')
+    env['PYTHON'] = sys.executable
+    # No native installer may target the interpreter's global site-packages.
+    env['LHAPDF_PYTHONPATH'] = str(prefix / 'python')
     cxx = env.get("CXX", "c++")
     env["CXXFLAGS"] = "-O2 -fPIC -std=c++17" + (" -D_GLIBCXX_USE_CXX11_ABI=1" if sys.platform == "linux" else "")
     if sys.platform == "darwin":
         env.setdefault("MACOSX_DEPLOYMENT_TARGET", "11.0")
-    fastjet = args.fastjet_prefix
+    dependencies = dict(args.dependency_prefix or [])
+    if args.fastjet_prefix:
+        dependencies['fastjet'] = args.fastjet_prefix
+    expected = LOCK[name]
+    for dep, abi in expected['requires_native'].items():
+        path = dependencies.get(dep)
+        if path is None or json.loads((path / 'manifest.json').read_text()).get('abi') != abi:
+            raise RuntimeError(f"{name} requires locked {dep} ABI {abi}")
+    fastjet = dependencies.get('fastjet')
     if name == "fastjet":
         run(["./configure", f"--prefix={prefix}", "--enable-shared", "--disable-static",
              "--enable-allcxxplugins", "--disable-auto-ptr"], source, env)
@@ -160,12 +183,33 @@ def build(name, args):
         run(["make", "install"], source, env)
         run(["make", "fragile-shared"], source, env)
         run(["make", "fragile-shared-install"], source, env)
+    elif name == 'lhapdf':
+        run(['./configure', f'--prefix={prefix}', '--enable-shared', '--disable-static', '--disable-python', 'PYTHON='], source, env)
+        run(['make', f'-j{args.jobs}'], source, env)
+        run(['make', 'install'], source, env)
+    elif name == 'hepmc3':
+        run(['cmake','-S',source,'-B',source/'_build', f'-DCMAKE_INSTALL_PREFIX={prefix}',
+             '-DCMAKE_INSTALL_LIBDIR=lib','-DCMAKE_CXX_STANDARD=17',f'-DCMAKE_CXX_FLAGS={env["CXXFLAGS"]}',
+             '-DHEPMC3_ENABLE_PYTHON=OFF','-DHEPMC3_ENABLE_ROOTIO=OFF','-DHEPMC3_ENABLE_SEARCH=OFF',
+             '-DHEPMC3_BUILD_STATIC_LIBS=OFF','-DHEPMC3_INSTALL_EXAMPLES=OFF'],env=env)
+        run(['cmake','--build',source/'_build','--parallel',str(args.jobs)],env=env)
+        run(['cmake','--install',source/'_build'],env=env)
     else:
+        flags = [f'--with-{flag}={dependencies[dep]}' for dep,flag in
+                 [('fastjet','fastjet3'),('hepmc3','hepmc3'),('lhapdf','lhapdf6')]]
         run(["./configure", f"--prefix={prefix}", f"--cxx={cxx}",
-             f"--cxx-common={env['CXXFLAGS']}"], source, env)
+             f"--cxx-common={env['CXXFLAGS']}", *flags], source, env)
+        # Link the HepMC plugin explicitly on both platforms (upstream uses
+        # the macOS-only dynamic_lookup shortcut for this target).
+        makefile = source / 'Makefile'
+        makefile.write_text(makefile.read_text().replace('$(CXX_SONAME)$(notdir $@) -Wl,-undefined,dynamic_lookup',
+            '$(CXX_SONAME)$(notdir $@) $(HEPMC3_LIB) -lHepMC3 -Llib -lpythia8'))
         run(["make", f"-j{args.jobs}"], source, env)
         run(["make", "install"], source, env)
-    relocate(prefix, fastjet if name == "fjcontrib" else None)
+    relocate(prefix, dependencies)
+    if name == 'lhapdf':
+        from lhapdf_python import build as build_python
+        build_python(source, prefix, env)
     recipe = yaml.safe_load((ROOT / name / f"{version}.yaml").read_text())
     cppyy = recipe["cppyy"]
     libraries = cppyy["libraries"]
@@ -173,17 +217,22 @@ def build(name, args):
         libraries = ["fastjet", "fastjettools", "fastjetplugins"]
     elif name == "fjcontrib":
         libraries = ["fastjetcontribfragile"]
+    elif name == 'pythia8':
+        libraries = ['pythia8', 'pythia8lhapdf6', 'pythia8hepmc3']
     manifest = dict(schema_version=1, name=name, version=version,
-                    distribution_version=f"{version}.0", cppyy_namespace=cppyy["namespace"],
+                    distribution_version=expected["wheel_version"], cppyy_namespace=cppyy["namespace"],
                     headers=cppyy["headers"], libraries=libraries,
-                    depends_on=recipe.get("depends_on", []),
+                    depends_on=list(expected["dependencies"]),
                     source_url=url, source_sha256=digest,
-                    abi=FASTJET_ABI if name == "fastjet" else f"{name}-{version}.0-cxx17-v1",
-                    requires_native={"fastjet": FASTJET_ABI} if name == "fjcontrib" else {})
+                    abi=expected["abi"], requires_native=expected["requires_native"],
+                    dependencies=expected["dependencies"])
     manifest["library_files"] = {}
     for lib in libraries:
         suffix = ".dylib" if sys.platform == "darwin" else ".so"
-        manifest["library_files"][lib] = library_identity(prefix / "lib" / f"lib{lib}{suffix}")
+        candidate = prefix / 'lib' / f'lib{lib}{suffix}'
+        if not candidate.exists():
+            candidate = prefix / 'lib' / f'lib{lib}.so'
+        manifest["library_files"][lib] = library_identity(candidate)
     (prefix / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     # Preserve original license notices alongside native payloads.
     licenses = prefix / "licenses"
@@ -198,13 +247,15 @@ def build(name, args):
     # Deliver the exact upstream sources and packaging recipe with the binary.
     sources = prefix / "sources"
     sources.mkdir()
-    shutil.copy2(args.cache / url.rsplit("/", 1)[1], sources)
+    shutil.copy2(args.cache / archive_name(url), sources)
     recipe_dir = sources / name
     recipe_dir.mkdir()
     shutil.copy2(ROOT / name / f"{version}.yaml", recipe_dir)
     shutil.copy2(Path(__file__), sources / "build.py")
     shutil.copy2(Path(__file__).with_name("REBUILD.md"), sources)
     shutil.copy2(Path(__file__).with_name("LICENSE"), sources / "PACKAGING-LICENSE")
+    shutil.copy2(ROOT / 'wheels/packages.lock.json', sources)
+    shutil.copy2(ROOT / 'wheels/lhapdf_python.py', sources)
     (sources / "provenance.json").write_text(json.dumps({
         "package": name, "source_url": url, "source_sha256": digest,
         "packaging_revision": os.environ.get("GITHUB_SHA", "local"),
@@ -214,17 +265,18 @@ def build(name, args):
 
 
 def package(name, prefix, output):
-    version = SOURCES[name][0] + ".0"
+    version = LOCK[name]["wheel_version"]
     module = f"hepyy_{name}"
     plat = sysconfig.get_platform().replace("-", "_").replace(".", "_")
     if sys.platform == "darwin":
         target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0").replace(".", "_")
         plat = f"macosx_{target}_{platform.machine()}"
-    tag = f"py3-none-{plat}"
+    python_tag = 'cp310-abi3' if name == 'lhapdf' else 'py3-none'
+    tag = f"{python_tag}-{plat}"
     info = f"{module}-{version}.dist-info"
     wheel = output / f"{module}-{version}-{tag}.whl"
     metadata = (f"Metadata-Version: 2.4\nName: hepyy-{name}\nVersion: {version}\n"
-                "Requires-Python: >=3.9\nSummary: Native C++ payload for hepyy/cppyy\n")
+                f"Requires-Python: >={'3.10' if name == 'lhapdf' else '3.9'}\nSummary: Native C++ payload for hepyy/cppyy\n")
     metadata += (
         "Author: hepyy contributors; upstream authors credited in bundled sources\n"
         "Project-URL: Repository, https://github.com/matplo/hepyy-recipes\n"
@@ -236,12 +288,19 @@ def package(name, prefix, output):
     notices = [p for p in sorted((prefix / "licenses").rglob("*")) if p.is_file()]
     for notice in notices:
         metadata += f"License-File: upstream/{notice.relative_to(prefix / 'licenses').as_posix()}\n"
-    if name == "fjcontrib":
-        metadata += "Requires-Dist: hepyy-fastjet==3.5.1.0\n"
+    for dep, dep_version in LOCK[name]['dependencies'].items():
+        metadata += f"Requires-Dist: hepyy-{dep}=={dep_version}\n"
     with WheelFile(wheel, "w") as archive:
         archive.writestr(f"{module}/__init__.py", '"""Native data package; load through hepyy.load()."""\n')
         for notice in notices:
             archive.write(notice, f"{info}/licenses/upstream/{notice.relative_to(prefix / 'licenses').as_posix()}")
+        if name == 'lhapdf':
+            for path in sorted((prefix / 'python/lhapdf').rglob('*')):
+                if path.is_file():
+                    archive.write(path, 'lhapdf/' + path.relative_to(prefix/'python/lhapdf').as_posix())
+            for filename in ('cli.py','upstream_lhapdf.py'):
+                archive.write(prefix/filename,f'{module}/{filename}')
+            archive.writestr(f'{info}/entry_points.txt','[console_scripts]\nlhapdf = hepyy_lhapdf.cli:main\n')
         # A wheel has no symlink semantics. Write exactly one file per SONAME,
         # rather than materializing aliases as independently loadable copies.
         for library in sorted(shared_libraries(prefix)):
@@ -257,7 +316,7 @@ def package(name, prefix, output):
             f"# hepyy-{name} {version}\n\n"
             f"Native {name} libraries and headers for the shared hepyy/cppyy loader.\n\n"
             "Install hepyy with its matching native extras, then use `hepyy.load()`. "
-            "These wheels contain no cppyy runtime or independent Python bindings. "
+            "The cppyy runtime is supplied separately. LHAPDF also includes its upstream Python API and command. "
             "On macOS use an activated conda-forge cppyy environment.\n\n"
             "Tested: Linux x86_64 with pip cppyy (Python 3.10/3.12), and macOS "
             "arm64/x86_64 with conda-forge cppyy (Python 3.12). "
@@ -279,6 +338,7 @@ def main():
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--fastjet-prefix", type=Path)
+    parser.add_argument("--dependency-prefix", action='append', type=lambda x: (x.split('=',1)[0],Path(x.split('=',1)[1]).resolve()))
     parser.add_argument("--jobs", type=int, default=4)
     args = parser.parse_args()
     if sys.platform not in ("darwin", "linux"):

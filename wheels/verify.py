@@ -15,7 +15,8 @@ def verify(path):
         info = next(n for n in names if n.endswith('.dist-info/WHEEL'))
         wheel = archive.read(info).decode()
         assert 'Root-Is-Purelib: false' in wheel
-        assert 'Tag: py3-none-' in wheel and 'none-any' not in wheel
+        expected_tag = 'cp310-abi3-' if manifest['name']=='lhapdf' else 'py3-none-'
+        assert 'Tag: '+expected_tag in wheel and 'none-any' not in wheel
         metadata = archive.read(info.replace('/WHEEL', '/METADATA')).decode()
         assert 'Requires-Dist: cppyy' not in metadata
         assert not any('cppyy_backend' in n or 'libCling' in n for n in names)
@@ -33,9 +34,14 @@ def verify(path):
         assert 'Description-Content-Type: text/markdown' in metadata
         assert 'License-File: upstream/' in metadata
         assert any(n.startswith(info.rsplit('/', 1)[0] + '/licenses/upstream/') for n in names)
+        for dep, version in manifest.get('dependencies', {}).items():
+            assert f'Requires-Dist: hepyy-{dep}=={version}' in metadata
         if manifest['name'] == 'fjcontrib':
-            assert 'Requires-Dist: hepyy-fastjet==3.5.1.0' in metadata
+            assert 'Requires-Dist: hepyy-fastjet==' in metadata
             assert not any(Path(n).name.startswith(('libfastjet.', 'libfastjettools.', 'libfastjetplugins.')) for n in names)
+        if manifest['name'] == 'lhapdf':
+            assert 'lhapdf/lhapdf.abi3.so' in names
+            assert 'lhapdf = hepyy_lhapdf.cli:main' in archive.read(info.replace('/WHEEL','/entry_points.txt')).decode()
         if manifest['name'] == 'pythia8':
             assert f'{prefix}/share/Pythia8/xmldoc/Index.xml' in names
     print('PASS wheel:', path)
