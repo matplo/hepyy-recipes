@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build pip-owned C++ payload wheels. No Python bindings or cppyy are bundled.
+"""Build pip-owned C++ payloads and upstream LHAPDF bindings; cppyy is external.
 
 Requires Python >=3.12, PyYAML, wheel and a C++ toolchain; Linux also patchelf.
 Run in a manylinux container for portable Linux artifacts. See README.md.
@@ -316,7 +316,7 @@ def package(name, prefix, output):
             f"# hepyy-{name} {version}\n\n"
             f"Native {name} libraries and headers for the shared hepyy/cppyy loader.\n\n"
             "Install hepyy with its matching native extras, then use `hepyy.load()`. "
-            "These wheels contain no cppyy runtime or independent Python bindings. "
+            "The cppyy runtime is supplied separately. LHAPDF also includes its upstream Python API and command. "
             "On macOS use an activated conda-forge cppyy environment.\n\n"
             "Tested: Linux x86_64 with pip cppyy (Python 3.10/3.12), and macOS "
             "arm64/x86_64 with conda-forge cppyy (Python 3.12). "
