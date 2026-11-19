@@ -142,3 +142,56 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: package-dist/
+  rehearse-testpypi:
+    if: inputs.destination == 'testpypi'
+    needs: publish-dependents
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, python: '3.10'}
+          - {os: ubuntu-24.04, python: '3.12'}
+          - {os: macos-15, python: '3.12'}
+          - {os: macos-15-intel, python: '3.12'}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/hepyy
+          ref: 01d1987a8fb6908f2942a2bb4b6f9feb28a62d33
+          path: hepyy
+      - uses: actions/setup-python@v5
+        if: runner.os == 'Linux'
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: conda-incubator/setup-miniconda@v3
+        if: runner.os == 'macOS'
+        with:
+          miniforge-version: latest
+          activate-environment: native-rehearsal
+          python-version: ${{ matrix.python }}
+          channels: conda-forge
+          conda-remove-defaults: true
+      - name: Prepare runtime from normal package sources
+        shell: bash -el {0}
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            conda install -y cppyy pip
+            python -m pip install ./hepyy
+          else
+            python -m pip install './hepyy[cppyy]'
+          fi
+          python -m pip freeze | grep -iE 'cppyy|cling' > cppyy-before.txt
+      - name: Download exact native wheels from TestPyPI only
+        shell: bash -el {0}
+        run: |
+          python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --dest staging hepyy-fastjet==3.5.1.0 hepyy-fjcontrib==1.102.0 hepyy-pythia8==8.317.0
+          python -m pip install --no-index --no-deps staging/*.whl
+          python -m pip freeze | grep -iE 'cppyy|cling' > cppyy-after.txt
+          diff -u cppyy-before.txt cppyy-after.txt
+      - name: Verify installed TestPyPI wheels
+        shell: bash -el {0}
+        run: HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-rehearsal-registry" python wheels/smoke.py
