@@ -34,9 +34,9 @@ generation must match. Linux uses `_GLIBCXX_USE_CXX11_ABI=1`. fjcontrib pins
 `hepyy-fastjet==3.5.1.0` in metadata and its FastJet ABI generation in the manifest.
 Bump both when changing that ABI/build contract.
 
-Only headers, shared libraries, runtime data, manifests, and original license
-notices are packaged. No static archives, libtool archives, build tools, or
-cppyy/Cling libraries are shipped. Each shared library is stored once under its SONAME/install identity. The
+Headers, shared libraries, runtime data, manifests, original license notices,
+and corresponding upstream archives/build scripts are packaged. No compiled
+static archives, libtool archives, or cppyy/Cling libraries are shipped. Each shared library is stored once under its SONAME/install identity. The
 manifest tells the loader to use that canonical filename, avoiding duplicate
 images from pip copying symlink aliases. No FastJet libraries appear in the
 contrib wheel. The smoke test checks the loaded process images explicitly.
