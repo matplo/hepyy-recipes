@@ -1,10 +1,10 @@
 name: Native wheels
 on:
   push:
-    branches: [main, 'feature/native-wheels']
-    paths: ['wheels/**', '.github/workflows/native-wheels.yml', 'fastjet/**', 'fjcontrib/**', 'pythia8/**']
+    branches: [main, 'feature/native-wheels', 'feature/hepbundle-wheels']
+    paths: ['wheels/**', '.github/workflows/native-wheels.yml', 'fastjet/**', 'fjcontrib/**', 'pythia8/**', 'hepbundle/**', 'hepmc3/**', 'lhapdf/**']
   pull_request:
-    paths: ['wheels/**', '.github/workflows/native-wheels.yml', 'fastjet/**', 'fjcontrib/**', 'pythia8/**']
+    paths: ['wheels/**', '.github/workflows/native-wheels.yml', 'fastjet/**', 'fjcontrib/**', 'pythia8/**', 'hepbundle/**', 'hepmc3/**', 'lhapdf/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,19 +17,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: yum install -y rsync
-      - run: python -m pip install wheel pyyaml auditwheel patchelf twine
+      - run: python -m pip install wheel pyyaml packaging auditwheel patchelf twine cmake Cython==3.3.1 abi3audit
       - run: python -m unittest discover -s wheels/tests -v
       - name: Build native payloads
         run: |
-          python wheels/build.py fastjet --work build-native --cache cache --output raw-wheels
-          python wheels/build.py fjcontrib --work build-native --cache cache --output raw-wheels --fastjet-prefix build-native/fastjet/prefix
-          python wheels/build.py pythia8 --work build-native --cache cache --output raw-wheels
-      - name: Audit and repair without duplicating FastJet
+          python wheels/upgrade.py build --work build-native --cache cache --output raw-wheels
+      - name: Audit and repair without duplicating native dependencies
         run: |
-          auditwheel repair --plat manylinux_2_28_x86_64 -w wheelhouse raw-wheels/hepyy_fastjet-*.whl
-          LD_LIBRARY_PATH="$PWD/build-native/fastjet/prefix/lib" auditwheel repair --plat manylinux_2_28_x86_64 --exclude libfastjet.so.0 --exclude libfastjettools.so.0 --exclude libfastjetplugins.so.0 -w wheelhouse raw-wheels/hepyy_fjcontrib-*.whl
-          auditwheel repair --plat manylinux_2_28_x86_64 -w wheelhouse raw-wheels/hepyy_pythia8-*.whl
+          python wheels/repair.py build-native raw-wheels wheelhouse
           python wheels/verify.py wheelhouse/*.whl
+          abi3audit --strict wheelhouse/hepyy_lhapdf-*.whl
           python -m twine check --strict wheelhouse/*.whl
       - uses: actions/upload-artifact@v4
         with:
@@ -46,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: matplo/hepyy
-          ref: d89a78aa701524b7c0af3b4cfec9c7d7dc29f3b6
+          ref: dbcb43fa28595d78a272d7b37080d0e4d406cea1
           path: hepyy
       - uses: actions/setup-python@v5
         with:
@@ -55,10 +52,12 @@ jobs:
         with:
           name: native-manylinux-x86_64
           path: wheelhouse
-      - run: python -m pip install --find-links wheelhouse './hepyy[cppyy,fjcontrib,pythia8]'
+      - run: python -m pip install --find-links wheelhouse './hepyy[cppyy,hepbundle]'
+      - run: python wheels/test_pdf.py test-pdf
       - run: python wheels/smoke.py
         env:
           HEPYY_PACKAGES_DIR: ${{ runner.temp }}/empty-registry
+          LHAPDF_DATA_PATH: ${{ github.workspace }}/test-pdf
   macos:
     strategy:
       fail-fast: false
@@ -72,19 +71,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: matplo/hepyy
-          ref: d89a78aa701524b7c0af3b4cfec9c7d7dc29f3b6
+          ref: dbcb43fa28595d78a272d7b37080d0e4d406cea1
           path: hepyy
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install wheel pyyaml delocate twine
+      - run: python -m pip install wheel pyyaml packaging delocate twine Cython==3.3.1 abi3audit
       - run: python -m unittest discover -s wheels/tests -v
       - name: Build using the system toolchain
         run: |
-          python wheels/build.py fastjet --work build-native --cache cache --output wheelhouse
-          python wheels/build.py fjcontrib --work build-native --cache cache --output wheelhouse --fastjet-prefix build-native/fastjet/prefix
-          python wheels/build.py pythia8 --work build-native --cache cache --output wheelhouse
+          python wheels/upgrade.py build --work build-native --cache cache --output wheelhouse
           python wheels/verify.py wheelhouse/*.whl
+          abi3audit --strict wheelhouse/hepyy_lhapdf-*.whl
           python -m twine check --strict wheelhouse/*.whl
           delocate-listdeps wheelhouse/hepyy_fastjet-*.whl
           delocate-listdeps wheelhouse/hepyy_pythia8-*.whl
@@ -101,10 +99,11 @@ jobs:
         run: |
           conda install -y cppyy pip
           python -m pip freeze | grep -iE 'cppyy|cling' > cppyy-before.txt
-          python -m pip install --find-links wheelhouse './hepyy[fjcontrib,pythia8]'
+          python -m pip install --find-links wheelhouse './hepyy[hepbundle]'
           python -m pip freeze | grep -iE 'cppyy|cling' > cppyy-after.txt
           diff -u cppyy-before.txt cppyy-after.txt
-          HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-registry" python wheels/smoke.py
+          python wheels/test_pdf.py test-pdf
+          LHAPDF_DATA_PATH="$PWD/test-pdf" HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-registry" python wheels/smoke.py
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.os }}

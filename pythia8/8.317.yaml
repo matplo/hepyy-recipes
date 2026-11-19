@@ -12,3 +12,6 @@ cppyy:
     - Pythia8/Pythia.h
   libraries:
     - pythia8
+
+native_wheel:
+  sha256: "1ae551d14dac495ddfe6b344792035ebe410fe6c6004d44a335e0ece0e745adf"

@@ -1,82 +1,72 @@
-# First public native-wheel release
+# Release a locked hepbundle candidate
 
-Prepared distributions: hepyy-fastjet 3.5.1.0, hepyy-fjcontrib 1.102.0,
-hepyy-pythia8 8.317.0, then hepyy 0.2.31. The pre-change hepyy tag
-`pre-pip-wheels-2026-11-18` must never be moved.
+The versions and exact native dependency graph are in packages.lock.json. Use
+`python wheels/upgrade.py requirements` to print the candidate requirements.
+The current upstream set is FastJet 3.5.3, fjcontrib 1.105, HepMC3 3.3.1,
+LHAPDF 6.5.5 and Pythia 8.317 with all three external interfaces. The expanded
+candidate is not published yet. Previously staged three-package TestPyPI
+artifacts are older candidates and must never be overwritten.
 
-## Account setup (owner action)
+## Account setup
 
-In matplo/hepyy-recipes use GitHub environments `testpypi`, `pypi`,
-`testpypi-fjcontrib`, `pypi-fjcontrib`, `testpypi-pythia8`, and `pypi-pythia8`.
-Configure required reviewer approval and allow deployments from `main` only.
-Do this before dispatching the publishing workflow; an automatically created
-unprotected environment does not supply a human approval gate.
+All publishers use owner/repository matplo/hepyy-recipes and workflow filename
+publish-native.yml. Configure the following exact environment names:
 
-For **each** of the three native project names, add a pending Trusted Publisher
-on both TestPyPI and PyPI using these exact values:
+| Project | TestPyPI environment | PyPI environment |
+|---|---|---|
+| hepyy-fastjet | testpypi | pypi |
+| hepyy-fjcontrib | testpypi-fjcontrib | pypi-fjcontrib |
+| hepyy-hepmc3 | testpypi-hepmc3 | pypi-hepmc3 |
+| hepyy-lhapdf | testpypi-lhapdf | pypi-lhapdf |
+| hepyy-pythia8 | testpypi-pythia8 | pypi-pythia8 |
 
-| Field | Value |
-|---|---|
-| Owner | matplo |
-| Repository | hepyy-recipes |
-| Workflow filename | publish-native.yml |
-| Environment (FastJet) | testpypi on TestPyPI; pypi on PyPI |
-| Environment (fjcontrib) | testpypi-fjcontrib; pypi-fjcontrib |
-| Environment (Pythia8) | testpypi-pythia8; pypi-pythia8 |
+FastJet/fjcontrib/Pythia publishers were registered previously. HepMC3 and LHAPDF
+are new registrations requiring owner approval/setup. Pending publisher tuples
+must be distinct across project names. Each GitHub environment must require
+matplo review and allow only main. The prepare job checks all environments
+before uploading any package. Do not rely on automatically created, unprotected
+environments. Verify publisher names again before the first upload; pending
+publishers do not reserve names.
 
-All six pending publishers were registered and verified on November 18, 2026.
-All six GitHub environments require review by matplo and main-only deployments.
-Distinct environments are necessary because PyPI rejects identical pending
-publisher configurations across different project names. The workflow publishes
-FastJet first, then the two dependent distribution jobs with their own approvals.
+hepyy's publisher uses matplo/hepyy, publish.yml, environment pypi. Its environment
+requires matplo review and permits v* tags. The pre-change snapshot
+pre-pip-wheels-2026-11-18 must never be moved.
 
-Pending publishers do not reserve names. Confirm ownership/name availability
-again before the first upload. No API token needs to be shared with an agent.
-Existing hepyy publishing uses repository `matplo/hepyy`, workflow `publish.yml`
-and environment `pypi`; verify its existing Trusted Publisher and reviewers.
+## Candidate and release sequence
 
-## Review and rehearsal
+1. Run the preparation described in UPGRADING.md. Inspect the lock, source
+   hashes, packaging revisions, ABI/dependency changes and paired Git diffs.
+   The build profiles are reviewed policies; incompatible upstream changes
+   require fixes and tests, not guessed flags. Set the intended hepyy release
+   version explicitly. No command here creates a release tag automatically.
+2. Commit/review the paired changes. Pin the synchronized hepyy commit in native
+   CI and TestPyPI rehearsal. Merge only after tests pass.
+3. Require successful Native wheels CI on the exact recipes main release
+   commit: Linux build/audit, Linux Python3.10/3.12 and macOS arm64/Intel. There
+   must be fifteen wheels, one per package/platform. LHAPDF is cp310-abi3 and
+   includes the upstream Python API and lhapdf command; other payloads have no
+   CPython extension ABI. Original licenses/sources/build adjustments are shipped.
+4. After TestPyPI upload approval, dispatch:
+   `python wheels/upgrade.py promote --run-id SUCCESSFUL_MAIN_RUN --index testpypi`.
+   The protected workflow verifies CI identity, the complete locked matrix,
+   source hashes/license files/metadata, and checksums. It publishes FastJet,
+   then HepMC3/LHAPDF, then fjcontrib/Pythia8 through package-specific approvals.
+5. Follow all four TestPyPI installation rehearsals to completion. They install
+   normal dependencies separately, download exact native versions only from
+   TestPyPI (never mixed extra indexes), preserve cppyy, and run real scientific
+   checks and lhapdf CLI/API tests. Record hashes and successful jobs.
+6. Obtain explicit public-release approval for that locked set and checksums.
+   Dispatch the same successful main run to index pypi and approve the public
+   environments. A partial upload needs an inspected deliberate retry; the
+   workflow does not blindly skip existing files or overwrite versions.
+7. Verify public native installs. Only then obtain/create the approved new hepyy
+   version tag; its existing release workflow checks that every locked native
+   version and platform is on PyPI before publishing hepyy. Recheck tag/version
+   availability. Verify the public pip commands in clean environments.
 
-1. Review/merge the paired hepyy and recipes PRs. Neither merge publishes.
-   The native workflow pins the reviewed hepyy candidate commit; update the pin
-   if the loader changes. The final hepyy `v*` tag is reserved for step 7.
-2. Run/await Native wheels CI on the exact recipes `main` commit to release.
-   All jobs must pass. Sources, licenses, strict metadata and scientific tests
-   are checked before artifacts are accepted.
-3. Dispatch **Publish tested native wheels** from `main`, supplying that numeric
-   run ID and destination `testpypi`. Review checksums and approve the `testpypi`
-   environment. The workflow accepts only a successful main-push CI run at the
-   exact publishing commit, with all nine native wheels.
-4. In fresh Linux and activated macOS conda cppyy environments, install ordinary
-   dependencies from PyPI/conda first. Download the three native projects from
-   TestPyPI using `pip download --index-url https://test.pypi.org/simple/ --no-deps
-   --only-binary=:all: hepyy-fastjet==3.5.1.0 hepyy-fjcontrib==1.102.0
-   hepyy-pythia8==8.317.0`. Install these local files and the hepyy 0.2.31 candidate
-   wheel with `--no-deps`, then run `wheels/smoke.py` with an empty registry.
-   Do not combine indexes with extra-index-url. Record the run and results.
-5. Obtain explicit public-publication approval for the exact native versions
-   and checksums. Dispatch the same workflow/run ID to `pypi`, then approve its
-   protected environment. The workflow publishes the tested native artifact set.
-   A partial upload is recoverable by inspecting PyPI and preparing a deliberate
-   retry; automatic skip-existing is disabled to expose unexpected collisions.
-6. Verify public native installs and run the scientific checks before releasing
-   hepyy. The hepyy release workflow also requires all pinned native versions and
-   platform artifacts to exist on PyPI.
-7. Obtain approval for the hepyy release, then create a new `v0.2.31` tag on the
-   reviewed hepyy release commit. Its existing workflow publishes wheel/sdist.
-   Verify public `pip install 'hepyy[cppyy,fjcontrib,pythia8]'` on Linux, and
-   `pip install 'hepyy[fjcontrib,pythia8]'` with activated macOS conda cppyy.
-
-No index upload, environment change, merge or release tag is performed merely
-by preparing these files. TestPyPI and public PyPI use separate accounts and
-publisher configuration. Wheels include exact corresponding upstream sources,
-packaging code, rebuild instructions and original component license notices.
-Release reviewers should inspect those materials before public distribution.
-
-## Supported first release
-
-Linux x86_64 (tested Ubuntu 24.04, pip cppyy 3.5.0, Python 3.10/3.12), macOS
-arm64 and Intel (activated conda-forge cppyy 3.5.0, Python 3.12). Local arm64
-Python 3.14 also passed. Deployment tags are build targets; additional minimum
-OS claims need validation. Native wheels intentionally provide no pip source
-build fallback. Existing heyy source builds remain available.
+Neither a recipe commit nor sync/run publishes. The promote subcommand only
+dispatches a workflow; required-reviewer approval is still enforced. Standard
+first-release targets are Linux x86_64 and macOS arm64/Intel, CPython >=3.10 for
+the complete bundle. Additional OS/architecture claims need validation. Existing
+source builds remain available; native wheel source archives are corresponding
+source snapshots, not pip-buildable native sdists.
