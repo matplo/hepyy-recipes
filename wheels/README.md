@@ -1,15 +1,16 @@
 # Native hepbundle wheels
 
-The current candidate packages FastJet 3.5.3, fjcontrib 1.105, HepMC3 3.3.1,
-LHAPDF 6.5.5 (including upstream Python bindings and lhapdf command), and Pythia
-8.317 with FastJet/HepMC3/LHAPDF6 interfaces. All share their native dependency
+The wheel profiles package FastJet, fjcontrib, HepMC3, LHAPDF (including upstream
+Python bindings and lhapdf command), and Pythia8 with FastJet/HepMC3/LHAPDF6
+interfaces. Exact versions are recorded in packages.lock.json. All share their native dependency
 libraries and the existing cppyy loader. No alternative cppyy runtime is bundled.
 
 See [UPGRADING.md](UPGRADING.md) for the explicit recipe-driven sync/run/build/
 status/promote commands, version rules, supported build profiles and CI gates.
 [RELEASE.md](RELEASE.md) describes publisher setup and promotion approval.
 [REBUILD.md](REBUILD.md) describes the corresponding source materials delivered
-inside every wheel. These expanded candidates are not published yet.
+inside every wheel. The first full bundle is available with hepyy 0.2.31;
+see [public installation instructions](https://github.com/matplo/hepyy/blob/main/NATIVE_WHEELS.md).
 
 Linux uses manylinux x86_64 builds; macOS builds arm64 and Intel. LHAPDF's
 Python binding is cp310-abi3, audited and runtime-tested. Other payloads are

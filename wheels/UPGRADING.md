@@ -89,8 +89,9 @@ python wheels/upgrade.py promote --run-id SUCCESSFUL_MAIN_RUN --index testpypi
 This dispatches the existing protected workflow; it does not approve its
 required-reviewer gates. TestPyPI installations are then retested on all targets.
 The workflow requires protected publisher environments for every package before
-uploading anything. See RELEASE.md for publisher fields; HepMC3 and LHAPDF need
-hepyy-hepmc3/hepyy-lhapdf publishers and matching *-hepmc3/*-lhapdf environments.
+uploading anything. All five current profiles have configured publishers and
+package-specific environments. See RELEASE.md for exact publisher fields and
+the staged first-publication sequence when pending-publisher slots are limited.
 
 Public promotion is separate and must be explicitly approved:
 
