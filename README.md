@@ -40,8 +40,12 @@ hepyy recipe update
 Each recipe is a YAML file at `<name>/<version>.yaml`. See existing recipes for the format.
 To contribute, open a pull request against this repository.
 
-## Native wheel development
+## Pip-installable HEP bundle
 
-[The native wheel builder](wheels/README.md) packages FastJet, fjcontrib and
-Pythia8 for the shared cppyy loader in hepyy. Its CI uploads test artifacts only;
-it does not publish packages or change the existing source-install recipes.
+[The native wheel builder](wheels/README.md) packages FastJet, fjcontrib, HepMC3,
+LHAPDF (with its upstream Python API and command), and Pythia8 with their shared
+native interfaces. The full bundle is available through `hepyy[hepbundle]`;
+see [installation](https://github.com/matplo/hepyy/blob/main/NATIVE_WHEELS.md).
+[The upgrade program](wheels/UPGRADING.md) prepares new candidates from recipe
+changes. CI builds and tests artifacts; a separate, protected promotion workflow
+publishes approved releases. Source installation remains available.

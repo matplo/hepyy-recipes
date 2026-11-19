@@ -2,10 +2,9 @@
 
 The versions and exact native dependency graph are in packages.lock.json. Use
 `python wheels/upgrade.py requirements` to print the candidate requirements.
-The current upstream set is FastJet 3.5.3, fjcontrib 1.105, HepMC3 3.3.1,
-LHAPDF 6.5.5 and Pythia 8.317 with all three external interfaces. The expanded
-candidate is not published yet. Previously staged three-package TestPyPI
-artifacts are older candidates and must never be overwritten.
+The first full five-package bundle ships with hepyy 0.2.31. Each upgrade prepares
+a fresh locked candidate. Previously published PyPI/TestPyPI files, including
+the older three-package TestPyPI candidates, are immutable.
 
 ## Account setup
 
@@ -20,13 +19,20 @@ publish-native.yml. Configure the following exact environment names:
 | hepyy-lhapdf | testpypi-lhapdf | pypi-lhapdf |
 | hepyy-pythia8 | testpypi-pythia8 | pypi-pythia8 |
 
-FastJet/fjcontrib/Pythia publishers were registered previously. HepMC3 and LHAPDF
-are new registrations requiring owner approval/setup. Pending publisher tuples
+All five publishers were configured for the first full release. New package
+profiles require their own approved registration/setup. Pending publisher tuples
 must be distinct across project names. Each GitHub environment must require
 matplo review and allow only main. The prepare job checks all environments
 before uploading any package. Do not rely on automatically created, unprotected
 environments. Verify publisher names again before the first upload; pending
 publishers do not reserve names.
+
+During first publication, this account allowed three pending publishers at a
+time. Publishing FastJet consumed its pending publisher and freed a slot;
+HepMC3 was then registered and published, freeing the slot for LHAPDF. The two
+library jobs have independent protected gates, which support this sequence
+before the fjcontrib/Pythia stage. Existing publishers and reviewer protections
+remain in place throughout.
 
 hepyy's publisher uses matplo/hepyy, publish.yml, environment pypi. Its environment
 requires matplo review and permits v* tags. The pre-change snapshot
