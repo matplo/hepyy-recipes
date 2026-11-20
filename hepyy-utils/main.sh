@@ -34,5 +34,11 @@ export PYTHONPATH="{{ prefix }}:${PYTHONPATH:-}"
 exec python3 -m hepyy_utils.jewel.cli pipeline "$@"
 EOF
 
-chmod +x {{ prefix }}/bin/jewel_prepare {{ prefix }}/bin/jewel_run {{ prefix }}/bin/jewel_convert {{ prefix }}/bin/jewel_pipeline
+cat > {{ prefix }}/bin/jewel_tables <<'EOF'
+#!/usr/bin/env bash
+export PYTHONPATH="{{ prefix }}:${PYTHONPATH:-}"
+exec python3 -m hepyy_utils.jewel.cli tables "$@"
+EOF
+
+chmod +x {{ prefix }}/bin/jewel_prepare {{ prefix }}/bin/jewel_run {{ prefix }}/bin/jewel_convert {{ prefix }}/bin/jewel_pipeline {{ prefix }}/bin/jewel_tables
 PYTHONPATH={{ prefix }} python3 -c "import hepyy_utils; import hepyy_utils.jewel; print('[hepyy-utils]', hepyy_utils.__version__)"

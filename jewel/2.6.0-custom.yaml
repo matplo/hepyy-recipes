@@ -4,9 +4,10 @@ version: "2.6.0-custom"
 url: "https://jewel.hepforge.org/downloads/?f=jewel-2.6.0.tgz"
 build_system: script
 # Installs three builds: stock (jewel-2.6.0-{simple,vac}), jewel-2.6.0-custom-{simple,vac}
-# (hard-parton output) and jewel-2.6.0-custom-perf-{simple,vac} (all patches, faster, same
-# events). See 2.6.0-custom.sh for the patches and prefix/info/CUSTOM-PATCHES.txt after
-# installation.
+# (hard-parton output and opt-in geometry-v1) and jewel-2.6.0-custom-perf-{simple,vac}
+# (the same plus performance patches). Geometry is enabled by JEWEL_GEOMETRY_FILE
+# and JEWEL_GEOMETRY_RUN_ID for PPJJ events. See README.md, 2.6.0-custom.sh and the
+# installed prefix/info/CUSTOM-PATCHES.txt for definitions and provenance.
 verify_binary: jewel-2.6.0-custom-perf-vac
 depends_on:
   - lhapdf
