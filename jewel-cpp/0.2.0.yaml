@@ -1,0 +1,8 @@
+name: jewel_cpp
+version: "0.2.0"
+build_system: script
+build_script: "0.2.0.sh"
+cppyy:
+  namespace: jewel
+  headers: [jewel/event_generator.hpp]
+  libraries: [jewel_generator]

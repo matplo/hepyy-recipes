@@ -25,6 +25,7 @@ hepyy recipe update
 | jewel | 2.6.0 | JEWEL jet quenching event generator (requires lhapdf) |
 | jewel | 2.4.0 | JEWEL jet quenching event generator (requires lhapdf) |
 | jewel | 2.2.0 | JEWEL jet quenching event generator (requires lhapdf) |
+| jewel-cpp | 0.2.0 | Standalone C++ JEWEL generator with Pythia8, a cppyy interface, and FastJet examples |
 | lhapdf | 6.5.5 | LHAPDF6 PDF sets with Python (SWIG) bindings |
 | lhapdf | 6.5.4 | LHAPDF6 PDF sets with Python (SWIG) bindings |
 | powheg | v2 | POWHEG-BOX-V2 NLO event generator (requires svn; fetches source via SVN) |
@@ -34,6 +35,37 @@ hepyy recipe update
 | roounfold | master | RooUnfold — GitLab master (requires root) |
 | sherpa | 2.2.15 | Sherpa 2 multi-purpose event generator (optional: lhapdf, hepmc3, fastjet) |
 | starlight | master | STARlight ultra-peripheral collision generator (optional: hepmc3, dpmjet) |
+
+## C++ JEWEL in Python
+
+Activate the Conda environment or venv where you will run the examples. Install
+the native wheels with `python -m pip install 'hepyy[hepbundle]'`. If the
+environment also needs cppyy, use `hepyy[cppyy,hepbundle]`. Building the recipe
+requires Git, CMake, a C++17 compiler, and GitHub SSH access to the private
+`matplo/jewel-cpp` repository. The recipe pins the Python bindings commit after
+`v0.2.0` and builds against the active environment’s Pythia8 and LHAPDF wheels.
+
+```bash
+hepyy recipe update
+hepyy install jewel-cpp
+python -c 'import hepyy; hepyy.load("jewel_cpp"); import jewel_cpp; print(jewel_cpp.EventGeneratorConfig())'
+```
+
+From a local checkout of this recipe collection, use
+`hepyy install jewel-cpp --recipe "$PWD/jewel-cpp/0.2.0.yaml"`.
+The install command uses `jewel-cpp`, and the Python import is `jewel_cpp`.
+The `jewel` recipes below build the Fortran generator.
+
+```bash
+jewel_examples=$(python -c 'from hepyy.registry import get_registry; print(get_registry().get("jewel_cpp")["prefix"] + "/share/jewel-cpp/examples")')
+python "$jewel_examples/jewel_fastjet.py"
+jupyter notebook "$jewel_examples/jewel_fastjet.ipynb"
+```
+
+Run the notebook with a kernel from the same environment. The recipe registers
+`jewel_cpp` automatically. The notebook’s linked CMake and registry setup is
+for a manual build. Both examples generate hadronized events and cluster
+anti-kt jets with hepyy’s FastJet.
 
 ## JEWEL production geometry and path estimates
 
