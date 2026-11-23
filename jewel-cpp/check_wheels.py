@@ -43,6 +43,11 @@ def validate(artifacts):
             assert manifest["requires_native"] == {
                 package: record["abi"] for package, record in dependencies.items()
             }, wheel
+            notebook = json.loads(archive.read(
+                f"{name}/share/jewel-cpp/examples/jewel_fastjet.ipynb"
+            ))
+            setup = "".join(notebook["cells"][0]["source"])
+            assert "pip install 'hepyy[hepbundle,jewel-cpp]'" in setup, wheel
             libraries = [p for p in archive.namelist()
                          if ".so" in Path(p).name or p.endswith(".dylib")]
             assert libraries == [f"{name}/lib/{PLATFORMS[platform]}"], (wheel, libraries)
