@@ -11,12 +11,21 @@ on:
         required: true
         type: choice
         options: [testpypi, pypi]
+      package_set:
+        description: Wheel set to promote
+        type: choice
+        default: hepbundle
+        options: [hepbundle, jewel-cpp]
+      verify_only:
+        description: Verify artifacts without publishing
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
 jobs:
   prepare:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.package_set == 'hepbundle'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +83,7 @@ jobs:
             dist/*.whl
             SHA256SUMS
   publish-fastjet:
+    if: ${{ !inputs.verify_only }}
     needs: prepare
     runs-on: ubuntu-24.04
     strategy:
@@ -261,3 +271,81 @@ jobs:
         run: |
           python wheels/test_pdf.py test-pdf
           LHAPDF_DATA_PATH="$PWD/test-pdf" HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-rehearsal-registry" python wheels/smoke.py
+
+  prepare-jewel-cpp:
+    if: github.repository == 'matplo/hepyy-recipes' && github.ref == 'refs/heads/main' && inputs.package_set == 'jewel-cpp'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify the build run and protected environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+          DESTINATION: ${{ inputs.destination }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', f"repos/{os.environ['REPOSITORY']}/{path}"]))
+
+          assert os.environ['DESTINATION'] == 'pypi', 'JEWEL promotion uses the PyPI destination'
+          run_id = os.environ['RUN_ID']
+          assert run_id.isdigit(), 'run_id must be numeric'
+          run = api(f'actions/runs/{run_id}')
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['head_sha'] == os.environ['RELEASE_SHA'], 'CI must test this exact commit'
+          assert run['head_branch'] == 'main' and run['event'] in ('push', 'workflow_dispatch')
+          assert run['path'] == '.github/workflows/jewel-cpp-wheels.yml'
+
+          env_path = 'environments/pypi-jewel-cpp'
+          environment = api(env_path)
+          assert any(rule['type'] == 'required_reviewers' and rule['reviewers']
+                     for rule in environment['protection_rules'])
+          assert environment['deployment_branch_policy']['custom_branch_policies']
+          policies = api(env_path + '/deployment-branch-policies')['branch_policies']
+          assert len(policies) == 1 and policies[0]['name'] == 'main' and policies[0]['type'] == 'branch'
+          PY
+          gh run download "$RUN_ID" --repo "$REPOSITORY" --pattern 'jewel-*' --dir artifacts
+      - name: Verify the JEWEL release artifacts
+        run: |
+          python jewel-cpp/check_wheels.py artifacts dist
+          python -m pip install twine
+          python -m twine check --strict dist/*.whl
+          sha256sum dist/*.whl > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: approved-jewel-cpp-release
+          path: |
+            dist/*.whl
+            SHA256SUMS
+
+  publish-jewel-cpp:
+    if: ${{ !inputs.verify_only }}
+    needs: prepare-jewel-cpp
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi-jewel-cpp
+      url: https://pypi.org/project/hepyy-jewel-cpp/
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: approved-jewel-cpp-release
+          path: release
+      - name: Verify artifact checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: release/dist/

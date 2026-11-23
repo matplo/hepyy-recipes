@@ -1,0 +1,154 @@
+name: JEWEL native wheels
+
+on:
+  push:
+    branches: [main]
+    paths: ['jewel-cpp/wheels.lock.json', '.github/workflows/jewel-cpp-wheels.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pins:
+    runs-on: ubuntu-24.04
+    outputs:
+      jewel: ${{ steps.pins.outputs.jewel }}
+      hepyy: ${{ steps.pins.outputs.hepyy }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pins
+        run: |
+          jq -r '"jewel=\(.source_revision)", "hepyy=\(.hepyy_revision)"' \
+            jewel-cpp/wheels.lock.json >> "$GITHUB_OUTPUT"
+
+  linux-build:
+    needs: pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    env:
+      PATH: /opt/python/cp312-cp312/bin:/opt/rh/gcc-toolset-14/root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      JEWEL_SOURCE_REVISION: ${{ needs.pins.outputs.jewel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/jewel-cpp
+          ref: ${{ needs.pins.outputs.jewel }}
+          path: jewel-cpp
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/hepyy
+          ref: ${{ needs.pins.outputs.hepyy }}
+          path: hepyy
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/hepyy"
+          python -m pip install './hepyy[hepbundle]' wheel cmake auditwheel patchelf twine
+      - name: Build the Linux wheel
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/jewel-cpp"
+          python jewel-cpp/tools/build_hepyy_wheel.py --output raw-wheels --source-revision "$JEWEL_SOURCE_REVISION"
+      - name: Audit the wheel and keep Pythia8 in its own distribution
+        run: |
+          pythia_lib_dir=$(python -c 'from hepyy.native import wheel_record; print(wheel_record("pythia8")["lib_dir"])')
+          LD_LIBRARY_PATH="$pythia_lib_dir" auditwheel repair \
+            --plat manylinux_2_28_x86_64 --exclude libpythia8.so \
+            -w wheelhouse raw-wheels/*.whl
+          python -m twine check --strict wheelhouse/*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jewel-manylinux-x86_64
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  linux-test:
+    needs: [pins, linux-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/jewel-cpp
+          ref: ${{ needs.pins.outputs.jewel }}
+          path: jewel-cpp
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/hepyy
+          ref: ${{ needs.pins.outputs.hepyy }}
+          path: hepyy
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: jewel-manylinux-x86_64
+          path: wheelhouse
+      - name: Test the installed wheel and FastJet examples
+        run: |
+          python -m venv "$RUNNER_TEMP/jewel-wheel-test"
+          source "$RUNNER_TEMP/jewel-wheel-test/bin/activate"
+          python -m pip install --find-links wheelhouse './hepyy[cppyy,hepbundle,jewel-cpp]' nbclient ipykernel
+          python -m pip check
+          python -m ipykernel install --sys-prefix --name jewel-wheel-test
+          HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-registry" python jewel-cpp/tools/test_hepyy_wheel.py
+
+  macos:
+    needs: pins
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    env:
+      JEWEL_SOURCE_REVISION: ${{ needs.pins.outputs.jewel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/jewel-cpp
+          ref: ${{ needs.pins.outputs.jewel }}
+          path: jewel-cpp
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/hepyy
+          ref: ${{ needs.pins.outputs.hepyy }}
+          path: hepyy
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install './hepyy[hepbundle]' wheel twine
+      - name: Build and audit the macOS wheel
+        run: |
+          python jewel-cpp/tools/build_hepyy_wheel.py --output wheelhouse --source-revision "$JEWEL_SOURCE_REVISION"
+          python -m twine check --strict wheelhouse/*.whl
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: jewel-wheel-test
+          python-version: '3.12'
+          channels: conda-forge
+          conda-remove-defaults: true
+      - name: Test the installed wheel and FastJet examples
+        shell: bash -el {0}
+        run: |
+          conda install -y cppyy pip
+          python -m pip install --find-links wheelhouse './hepyy[hepbundle,jewel-cpp]' nbclient ipykernel
+          python -m pip check
+          python -m ipykernel install --sys-prefix --name jewel-wheel-test
+          HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-registry" python jewel-cpp/tools/test_hepyy_wheel.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jewel-${{ matrix.runner }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
