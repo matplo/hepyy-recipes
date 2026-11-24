@@ -15,7 +15,7 @@ on:
         description: Wheel set to promote
         type: choice
         default: hepbundle
-        options: [hepbundle, jewel-cpp]
+        options: [hepbundle, jewel-cpp, glauber-cpp]
       verify_only:
         description: Verify artifacts without publishing
         type: boolean
@@ -272,8 +272,8 @@ jobs:
           python wheels/test_pdf.py test-pdf
           LHAPDF_DATA_PATH="$PWD/test-pdf" HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-rehearsal-registry" python wheels/smoke.py
 
-  prepare-jewel-cpp:
-    if: github.repository == 'matplo/hepyy-recipes' && github.ref == 'refs/heads/main' && inputs.package_set == 'jewel-cpp'
+  prepare-standalone:
+    if: github.repository == 'matplo/hepyy-recipes' && github.ref == 'refs/heads/main' && (inputs.package_set == 'jewel-cpp' || inputs.package_set == 'glauber-cpp')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -287,6 +287,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RELEASE_SHA: ${{ github.sha }}
           DESTINATION: ${{ inputs.destination }}
+          PACKAGE_SET: ${{ inputs.package_set }}
         run: |
           python - <<'PY'
           import json
@@ -296,16 +297,18 @@ jobs:
           def api(path):
               return json.loads(subprocess.check_output(['gh', 'api', f"repos/{os.environ['REPOSITORY']}/{path}"]))
 
-          assert os.environ['DESTINATION'] == 'pypi', 'JEWEL promotion uses the PyPI destination'
+          package_set = os.environ['PACKAGE_SET']
+          assert package_set in ('jewel-cpp', 'glauber-cpp')
+          assert os.environ['DESTINATION'] == 'pypi', 'Use the PyPI destination for standalone wheels'
           run_id = os.environ['RUN_ID']
           assert run_id.isdigit(), 'run_id must be numeric'
           run = api(f'actions/runs/{run_id}')
           assert run['status'] == 'completed' and run['conclusion'] == 'success'
           assert run['head_sha'] == os.environ['RELEASE_SHA'], 'CI must test this exact commit'
           assert run['head_branch'] == 'main' and run['event'] in ('push', 'workflow_dispatch')
-          assert run['path'] == '.github/workflows/jewel-cpp-wheels.yml'
+          assert run['path'] == f'.github/workflows/{package_set}-wheels.yml'
 
-          env_path = 'environments/pypi-jewel-cpp'
+          env_path = f'environments/pypi-{package_set}'
           environment = api(env_path)
           assert any(rule['type'] == 'required_reviewers' and rule['reviewers']
                      for rule in environment['protection_rules'])
@@ -313,34 +316,40 @@ jobs:
           policies = api(env_path + '/deployment-branch-policies')['branch_policies']
           assert len(policies) == 1 and policies[0]['name'] == 'main' and policies[0]['type'] == 'branch'
           PY
-          gh run download "$RUN_ID" --repo "$REPOSITORY" --pattern 'jewel-*' --dir artifacts
-      - name: Verify the JEWEL release artifacts
+          case "$PACKAGE_SET" in
+            jewel-cpp) pattern='jewel-*' ;;
+            glauber-cpp) pattern='glauber-cpp-*' ;;
+          esac
+          gh run download "$RUN_ID" --repo "$REPOSITORY" --pattern "$pattern" --dir artifacts
+      - name: Verify the standalone release artifacts
+        env:
+          PACKAGE_SET: ${{ inputs.package_set }}
         run: |
-          python jewel-cpp/check_wheels.py artifacts dist
+          python "$PACKAGE_SET/check_wheels.py" artifacts dist
           python -m pip install twine
           python -m twine check --strict dist/*.whl
           sha256sum dist/*.whl > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: approved-jewel-cpp-release
+          name: ${{ format('approved-{0}-release', inputs.package_set) }}
           path: |
             dist/*.whl
             SHA256SUMS
 
-  publish-jewel-cpp:
+  publish-standalone:
     if: ${{ !inputs.verify_only }}
-    needs: prepare-jewel-cpp
+    needs: prepare-standalone
     runs-on: ubuntu-24.04
     environment:
-      name: pypi-jewel-cpp
-      url: https://pypi.org/project/hepyy-jewel-cpp/
+      name: ${{ format('pypi-{0}', inputs.package_set) }}
+      url: ${{ format('https://pypi.org/project/hepyy-{0}/', inputs.package_set) }}
     permissions:
       actions: read
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: approved-jewel-cpp-release
+          name: ${{ format('approved-{0}-release', inputs.package_set) }}
           path: release
       - name: Verify artifact checksums
         working-directory: release

@@ -1,0 +1,122 @@
+name: Glauber CLI wheels
+
+on:
+  push:
+    branches: [main]
+    paths: ['glauber-cpp/**', '.github/workflows/glauber-cpp-wheels.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pins:
+    runs-on: ubuntu-24.04
+    outputs:
+      glauber: ${{ steps.pins.outputs.glauber }}
+      hepyy: ${{ steps.pins.outputs.hepyy }}
+      jewel: ${{ steps.pins.outputs.jewel }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pins
+        run: |
+          jq -r '"glauber=\(.source_revision)", "hepyy=\(.hepyy_revision)", "jewel=\(.jewel_revision)"' \
+            glauber-cpp/wheels.lock.json >> "$GITHUB_OUTPUT"
+
+  linux-build:
+    needs: pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    env:
+      PATH: /opt/python/cp312-cp312/bin:/opt/rh/gcc-toolset-14/root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/glauber-cpp
+          ref: ${{ needs.pins.outputs.glauber }}
+          path: glauber-source
+          persist-credentials: false
+      - name: Build and audit the Linux wheel
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/glauber-source"
+          python -m pip install cmake auditwheel patchelf twine
+          python -m pip wheel ./glauber-source --no-deps --wheel-dir raw-wheels
+          auditwheel repair --plat manylinux_2_28_x86_64 -w wheelhouse raw-wheels/*.whl
+          python -m twine check --strict wheelhouse/*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: glauber-cpp-linux
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  macos-build:
+    needs: pins
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/glauber-cpp
+          ref: ${{ needs.pins.outputs.glauber }}
+          path: glauber-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and audit the macOS wheel
+        run: |
+          python -m pip install twine
+          python -m pip wheel ./glauber-source --no-deps --wheel-dir wheelhouse
+          python -m twine check --strict wheelhouse/*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: glauber-cpp-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  test:
+    needs: [pins, linux-build, macos-build]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, artifact: linux}
+          - {os: macos-15, artifact: macos-15}
+          - {os: macos-15-intel, artifact: macos-15-intel}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/hepyy
+          ref: ${{ needs.pins.outputs.hepyy }}
+          path: hepyy
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: matplo/jewel-cpp
+          ref: ${{ needs.pins.outputs.jewel }}
+          path: jewel-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: glauber-cpp-${{ matrix.artifact }}
+          path: wheelhouse
+      - name: Generate Glauber geometry and run JEWEL
+        run: |
+          python -m venv "$RUNNER_TEMP/glauber-wheel-test"
+          source "$RUNNER_TEMP/glauber-wheel-test/bin/activate"
+          python -m pip install --find-links wheelhouse './hepyy[hepbundle,glauber-cpp]'
+          python -m pip check
+          python glauber-cpp/test_wheel.py jewel-source
