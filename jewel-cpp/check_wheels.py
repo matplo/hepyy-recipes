@@ -48,6 +48,14 @@ def validate(artifacts):
             ))
             setup = "".join(notebook["cells"][0]["source"])
             assert "pip install 'hepyy[hepbundle,jewel-cpp]'" in setup, wheel
+            entry_points = archive.read(f"{name}-{version}.dist-info/entry_points.txt").decode()
+            assert "jewel-run-events = hepyy_jewel_cpp.cli:main" in entry_points, wheel
+            runner = archive.getinfo(f"{name}/bin/jewel-run-events")
+            assert runner.external_attr >> 16 & 0o111, wheel
+            assert f"{name}/cli.py" in archive.namelist(), wheel
+            for script in ("analyze_native_events.py", "jet_raa.py", "jet_substructure.py",
+                           "native_geometry_analysis.py"):
+                assert f"{name}/share/jewel-cpp/tools/{script}" in archive.namelist(), wheel
             libraries = [p for p in archive.namelist()
                          if ".so" in Path(p).name or p.endswith(".dylib")]
             assert libraries == [f"{name}/lib/{PLATFORMS[platform]}"], (wheel, libraries)

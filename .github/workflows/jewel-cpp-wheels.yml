@@ -51,11 +51,14 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE/jewel-cpp"
           python jewel-cpp/tools/build_hepyy_wheel.py --output raw-wheels --source-revision "$JEWEL_SOURCE_REVISION"
-      - name: Audit the wheel and keep Pythia8 in its own distribution
+      - name: Audit the wheel while reusing the Pythia8 and LHAPDF wheels
         run: |
           pythia_lib_dir=$(python -c 'from hepyy.native import wheel_record; print(wheel_record("pythia8")["lib_dir"])')
-          LD_LIBRARY_PATH="$pythia_lib_dir" auditwheel repair \
+          lhapdf_lib=$(python -c 'from pathlib import Path; from hepyy.native import wheel_record; record = wheel_record("lhapdf"); print(Path(record["lib_dir"]) / record["library_files"]["LHAPDF"])')
+          lhapdf_soname=$(patchelf --print-soname "$lhapdf_lib")
+          LD_LIBRARY_PATH="$pythia_lib_dir:$(dirname "$lhapdf_lib")" auditwheel repair \
             --plat manylinux_2_28_x86_64 --exclude libpythia8.so \
+            --exclude "${lhapdf_soname:-$(basename "$lhapdf_lib")}" \
             -w wheelhouse raw-wheels/*.whl
           python -m twine check --strict wheelhouse/*.whl
       - uses: actions/upload-artifact@v4
@@ -92,11 +95,11 @@ jobs:
         with:
           name: jewel-manylinux-x86_64
           path: wheelhouse
-      - name: Test the installed wheel and FastJet examples
+      - name: Test the installed runner, Glauber integration, and FastJet examples
         run: |
           python -m venv "$RUNNER_TEMP/jewel-wheel-test"
           source "$RUNNER_TEMP/jewel-wheel-test/bin/activate"
-          python -m pip install --find-links wheelhouse './hepyy[cppyy,hepbundle,jewel-cpp]' nbclient ipykernel
+          python -m pip install --find-links wheelhouse './hepyy[cppyy,hepbundle,jewel-cpp,glauber-cpp]' nbclient ipykernel
           python -m pip check
           python -m ipykernel install --sys-prefix --name jewel-wheel-test
           HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-registry" python jewel-cpp/tools/test_hepyy_wheel.py
@@ -139,11 +142,11 @@ jobs:
           python-version: '3.12'
           channels: conda-forge
           conda-remove-defaults: true
-      - name: Test the installed wheel and FastJet examples
+      - name: Test the installed runner, Glauber integration, and FastJet examples
         shell: bash -el {0}
         run: |
           conda install -y cppyy pip
-          python -m pip install --find-links wheelhouse './hepyy[hepbundle,jewel-cpp]' nbclient ipykernel
+          python -m pip install --find-links wheelhouse './hepyy[hepbundle,jewel-cpp,glauber-cpp]' nbclient ipykernel
           python -m pip check
           python -m ipykernel install --sys-prefix --name jewel-wheel-test
           HEPYY_PACKAGES_DIR="$RUNNER_TEMP/empty-registry" python jewel-cpp/tools/test_hepyy_wheel.py
@@ -152,3 +155,13 @@ jobs:
           name: jewel-${{ matrix.runner }}
           path: wheelhouse/*.whl
           if-no-files-found: error
+
+  verify-artifacts:
+    needs: [linux-test, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: python jewel-cpp/check_wheels.py artifacts dist
