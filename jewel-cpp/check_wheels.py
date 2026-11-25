@@ -56,6 +56,10 @@ def validate(artifacts):
             for script in ("analyze_native_events.py", "jet_raa.py", "jet_substructure.py",
                            "native_geometry_analysis.py"):
                 assert f"{name}/share/jewel-cpp/tools/{script}" in archive.namelist(), wheel
+            raa = json.loads(archive.read(f"{name}/share/jewel-cpp/examples/jewel_jet_raa.ipynb"))
+            code = "\n".join("".join(cell["source"]) for cell in raa["cells"] if cell["cell_type"] == "code")
+            compile(code, "jewel_jet_raa.ipynb", "exec")
+            assert '"quenched.jsonl", "3500"' in code and "--validate-no-quenching" in code, wheel
             libraries = [p for p in archive.namelist()
                          if ".so" in Path(p).name or p.endswith(".dylib")]
             assert libraries == [f"{name}/lib/{PLATFORMS[platform]}"], (wheel, libraries)
